@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Luna Genjutsu</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='13' fill='%23a78bfa'/><circle cx='21' cy='12' r='11' fill='%230b0b10'/></svg>">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <svg viewBox="0 0 32 32" width="28" height="28" aria-hidden="true"><circle cx="16" cy="16" r="13" fill="var(--accent)"/><circle cx="21" cy="12" r="11" fill="var(--bg)"/></svg>
+    <span>Luna <b>Genjutsu</b></span>
+  </div>
+  <div class="top-right">
+    <span id="providerBadge" class="badge"></span>
+    <button id="openSettings" class="ghost">Настройки</button>
+  </div>
+</header>
+
+<main class="layout">
+  <section class="card create" id="createCard">
+    <h1>Замена персонажа в видео</h1>
+    <p class="sub">Загрузите видео-референс и свои фото. Движение, камера, фон и звук останутся как в оригинале, а человек в кадре станет вами.</p>
+
+    <form id="form">
+      <div class="step">
+        <div class="step-head"><span class="num">1</span>Видео-референс</div>
+        <label class="drop video-drop" id="videoDrop">
+          <input type="file" name="video" accept="video/*" required hidden>
+          <div class="drop-empty">
+            <svg viewBox="0 0 24 24" width="30" height="30"><path fill="currentColor" d="M17 10.5V7a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-3.5l4 4v-11z"/></svg>
+            <b>Перетащите видео сюда</b><span>MP4 / MOV / WebM · 4–30 с · лучше один человек в кадре</span>
+          </div>
+          <video class="drop-preview" muted loop playsinline hidden></video>
+          <div class="drop-meta" hidden></div>
+        </label>
+      </div>
+
+      <div class="step">
+        <div class="step-head"><span class="num">2</span>Ваши фото</div>
+        <div class="photos">
+          <label class="drop photo-drop" data-role="face">
+            <input type="file" name="face" accept="image/*" hidden>
+            <div class="drop-empty"><svg viewBox="0 0 24 24" width="28" height="28"><path fill="currentColor" d="M12 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10zm0 2c-4 0-8 2-8 5v1h16v-1c0-3-4-5-8-5z"/></svg><b>Лицо крупно</b><span>анфас, ровный свет, без очков</span></div>
+            <img class="drop-preview" alt="" hidden>
+          </label>
+          <label class="drop photo-drop" data-role="body">
+            <input type="file" name="body" accept="image/*" hidden>
+            <div class="drop-empty"><svg viewBox="0 0 24 24" width="28" height="28"><path fill="currentColor" d="M12 2a2.5 2.5 0 1 1 0 5 2.5 2.5 0 0 1 0-5zM9 8h6l1 7h-2l-.5 7h-3L10 15H8z"/></svg><b>В полный рост</b><span>с головы до ног, в той одежде, что нужна</span></div>
+            <img class="drop-preview" alt="" hidden>
+          </label>
+        </div>
+        <label class="extras">
+          <input type="file" name="extras" accept="image/*" multiple hidden>
+          <span id="extrasLabel">+ Добавить ракурсы (сбоку, сзади) — необязательно</span>
+        </label>
+      </div>
+
+      <details class="step options">
+        <summary><span class="num">3</span>Настройки <small>— можно не трогать</small></summary>
+        <div class="grid">
+          <div class="field wide">
+            <span>Режим</span>
+            <div class="seg" data-name="mode">
+              <button type="button" data-value="swap" class="on">Заменить персонажа</button>
+              <button type="button" data-value="motion">Движение в новую сцену</button>
+            </div>
+          </div>
+          <label class="field wide" id="sceneField" hidden>
+            <span>Новая сцена</span>
+            <input name="scene" placeholder="например: neon-lit Tokyo street at night, light rain">
+          </label>
+          <label class="field">
+            <span>Кого заменить <small>(англ.)</small></span>
+            <input name="who" value="person" placeholder="person / man in black jacket">
+          </label>
+          <label class="field">
+            <span>Качество</span>
+            <select name="quality">
+              <option value="draft">Черновик → потом 1080p (дешевле)</option>
+              <option value="hd">Сразу 1080p</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Как скрыть человека</span>
+            <select name="masking">
+              <option value="auto">Авто</option>
+              <option value="cloud">Облако: SAM 3 + карта глубины (лучше)</option>
+              <option value="local">Локально: MediaPipe (бесплатно)</option>
+              <option value="none">Не скрывать (мультяшный исходник)</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Звук для липсинка</span>
+            <select name="audio">
+              <option value="auto">Авто</option>
+              <option value="vocals">Только голос (Demucs)</option>
+              <option value="full">Весь звук</option>
+              <option value="none">Без звука</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Проверка маски</span>
+            <select name="review">
+              <option value="auto">Только если есть проблемы</option>
+              <option value="always">Всегда перед отправкой</option>
+              <option value="never">Никогда</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Провайдер</span>
+            <select name="provider" id="providerSelect"></select>
+          </label>
+          <label class="field wide">
+            <span>Дополнительно <small>(англ., необязательно)</small></span>
+            <input name="extra" placeholder="например: wearing a white hoodie, keep the sunglasses off">
+          </label>
+        </div>
+      </details>
+
+      <label class="consent">
+        <input type="checkbox" name="consent" value="yes" required>
+        <span>На фото я или человек, который дал согласие на такое видео.</span>
+      </label>
+
+      <div class="actions">
+        <button type="submit" class="primary" id="submitBtn">Сгенерировать</button>
+        <span class="hint" id="formHint"></span>
+      </div>
+    </form>
+  </section>
+
+  <section class="card job" id="jobCard" hidden>
+    <div class="job-head">
+      <button class="ghost small" id="backBtn">← Новое видео</button>
+      <span class="job-id" id="jobId"></span>
+    </div>
+    <div class="status-line"><b id="jobStage"></b><span id="jobPct"></span></div>
+    <div class="bar"><i id="jobBar"></i></div>
+    <ol class="steps" id="jobSteps">
+      <li data-k="normalize">Подготовка</li><li data-k="mask">Маска</li><li data-k="upload">Отправка</li><li data-k="generate">Генерация</li><li data-k="finish">Звук</li><li data-k="done">Готово</li>
+    </ol>
+    <div class="alert error" id="jobError" hidden></div>
+    <div class="alert warn" id="jobNotices" hidden></div>
+
+    <div class="result" id="resultBox" hidden>
+      <video id="resultVideo" controls playsinline></video>
+      <div class="result-actions">
+        <a class="primary" id="downloadBtn" download>Скачать</a>
+        <button class="secondary" id="hdBtn">Сделать 1080p</button>
+        <a class="secondary" id="downloadHdBtn" download hidden>Скачать 1080p</a>
+        <span class="hint" id="hdHint"></span>
+      </div>
+    </div>
+
+    <div class="review-box" id="reviewBox" hidden>
+      <p>Проверьте маску: сверху оригинал, снизу то, что получит Seedance. Человек должен быть полностью закрыт силуэтом.</p>
+      <div class="review-actions">
+        <button class="primary" id="approveBtn">Всё хорошо, отправить</button>
+        <button class="ghost" id="cancelBtn">Отменить</button>
+      </div>
+    </div>
+
+    <div class="job-actions">
+      <button class="secondary" id="retryBtn" hidden>Повторить</button>
+      <button class="ghost" id="stopBtn" hidden>Остановить</button>
+    </div>
+
+    <div class="media-row">
+      <figure id="previewFig" hidden><img id="previewImg" alt="Маска: оригинал и гид"><figcaption>Оригинал / что видит модель</figcaption></figure>
+      <figure id="sheetFig" hidden><img id="sheetImg" alt="Ваши фото"><figcaption>Ваши референсы</figcaption></figure>
+    </div>
+
+    <details class="more"><summary>Промпт и журнал</summary>
+      <pre id="jobPrompt"></pre>
+      <ul class="log" id="jobLog"></ul>
+    </details>
+  </section>
+
+  <aside class="card history">
+    <h2>Мои видео</h2>
+    <div id="historyList" class="history-list"><p class="muted">Пока пусто.</p></div>
+  </aside>
+</main>
+
+<dialog id="settings">
+  <form method="dialog" id="settingsForm">
+    <h2>Настройки</h2>
+    <p class="muted">Ключи хранятся только в файле <code>.env</code> на этом компьютере.</p>
+    <label class="field"><span>Провайдер по умолчанию</span>
+      <select name="PROVIDER">
+        <option value="enhancor">Enhancor · Seedance (лица разрешены)</option>
+        <option value="byteplus">BytePlus ModelArk · Seedance 2.0</option>
+        <option value="mock">Тест без оплаты (mock)</option>
+      </select></label>
+    <label class="field"><span>ENHANCOR_API_KEY</span><input name="ENHANCOR_API_KEY" autocomplete="off"></label>
+    <label class="field"><span>BYTEPLUS_API_KEY</span><input name="BYTEPLUS_API_KEY" autocomplete="off"></label>
+    <label class="field"><span>BYTEPLUS_MODEL</span><input name="BYTEPLUS_MODEL"></label>
+    <label class="field"><span>REPLICATE_API_TOKEN <small>(маска SAM 3, глубина, Demucs)</small></span><input name="REPLICATE_API_TOKEN" autocomplete="off"></label>
+    <label class="field"><span>Как отдавать файлы провайдеру</span>
+      <select name="MEDIA_HOST">
+        <option value="tunnel">Временный туннель Cloudflare (приватно)</option>
+        <option value="tmpfiles">tmpfiles.org (публично, ~1 ч)</option>
+        <option value="litterbox">litterbox (публично, 24 ч)</option>
+      </select></label>
+    <label class="field"><span>PUBLIC_BASE_URL <small>(свой HTTPS-туннель, необязательно)</small></span><input name="PUBLIC_BASE_URL" placeholder="https://…"></label>
+    <div class="actions">
+      <button class="primary" value="save" id="saveSettings">Сохранить</button>
+      <button class="ghost" value="cancel" formnovalidate>Закрыть</button>
+    </div>
+  </form>
+</dialog>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,2 @@
+# Free local masking (no Replicate needed). Optional: wheels exist for common Python versions.
+mediapipe>=0.10.14
