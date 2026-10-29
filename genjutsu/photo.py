@@ -111,6 +111,114 @@ def create(scene_file, scene_name, photo_files, options):
     return job
 
 
+RATIOS = ["1:1", "3:4", "4:3", "9:16", "16:9", "2:3", "3:2", "21:9"]
+MAX_FREE_REFS = 6
+
+
+def create_free(prompt, ref_files, options):
+    """Plain generation: an idea (any language) and optional reference pictures, no scene to edit."""
+    provider = providers.get("dreamina")
+    ok, missing = provider.ready()
+    if not ok:
+        raise ValueError(f"Не задан {missing}. Откройте «Настройки» и вставьте токен useapi.net.")
+    prompt = (prompt or "").strip()[:4000]
+    if not prompt and not ref_files:
+        raise ValueError("Опишите, что нарисовать, или добавьте фото-референс.")
+    model = options.get("image_model") or default_model()
+    if model not in provider.image_models:
+        raise ValueError(f"Неизвестная модель картинок «{model}».")
+    count = int(options.get("count") or 1)
+    if not 1 <= count <= MAX_VARIANTS:
+        raise ValueError(f"Вариантов можно от 1 до {MAX_VARIANTS}.")
+    ratio = options.get("ratio") or "auto"
+    if ratio != "auto" and ratio not in RATIOS:
+        raise ValueError(f"Неизвестный формат «{ratio}».")
+    if ratio == "auto" and not ref_files:
+        ratio = "1:1"
+    if len(ref_files) > MAX_FREE_REFS:
+        raise ValueError(f"Можно до {MAX_FREE_REFS} фото-референсов.")
+
+    job_id = datetime.now().strftime("%Y%m%d-%H%M%S-") + secrets.token_hex(3)
+    d = jobs.folder(job_id)
+    d.mkdir(parents=True)
+    try:
+        refs = []
+        for i, file in enumerate(ref_files, start=1):
+            raw = d / f"ref-{i}.upload"
+            with raw.open("wb") as f:
+                shutil.copyfileobj(file, f)
+            info = photos.prepare(raw, d / f"photo-ref{i}.jpg")
+            raw.unlink()
+            refs.append({"role": "ref", "file": f"photo-ref{i}.jpg", "send": f"photo-ref{i}.jpg", **info})
+        if refs:
+            photos.sheet([d / r["file"] for r in refs], d / "sheet.jpg")
+    except Exception:
+        shutil.rmtree(d, ignore_errors=True)
+        raise
+    job = {
+        "id": job_id,
+        "kind": "image",
+        "created": jobs._now(),
+        "status": "queued",
+        "stage": "В очереди",
+        "stage_key": "queued",
+        "progress": 0,
+        "log": [],
+        "idea": prompt,
+        "refs": refs,
+        "options": {"mode": "free", "template": "free", "image_model": model, "count": count,
+                    "quality": options.get("quality", "std"), "ratio": ratio, "enhance": options.get("enhance", "auto"), "provider": "dreamina"},
+        "notices": [],
+        "requests": [],
+        "images": [],
+        "result": None,
+        "error": None,
+    }
+    jobs.save(job)
+    jobs._cancel.discard(job_id)
+    jobs._executor.submit(_guard, job_id, _pipeline_free)
+    return job
+
+
+def _pipeline_free(job_id):
+    jobs.update(job_id, status="running", error=None, progress=0)
+    job = jobs.load(job_id)
+    d = jobs.folder(job_id)
+    opts = job["options"]
+    idea = job["idea"]
+    if opts.get("enhance") != "off" and chatgpt.status()["connected"]:
+        jobs.log(job_id, "GPT превращает описание в промпт", 20, "prompt")
+        text = photo_prompt.free_request(idea, len(job["refs"]), providers.Dreamina.image_models[opts["image_model"]])
+        images = [d / r["send"] for r in job["refs"]]
+        try:
+            try:
+                answer = chatgpt.respond(photo_prompt.FREE_GUIDE, text, images)
+            except chatgpt.ChatGPTError as exc:
+                if "не поддерживает" not in str(exc) or not images:
+                    raise
+                answer = chatgpt.respond(photo_prompt.FREE_GUIDE, text)
+            result = photo_prompt.parse(answer)
+            jobs.update(job_id, prompt=result["prompt"], summary=result["summary"], prompt_by="gpt")
+        except Exception as exc:
+            jobs.notice(job_id, f"GPT не улучшил промпт ({exc}) — отправляю ваше описание как есть.")
+    job = jobs.load(job_id)
+    if not job.get("prompt"):
+        if opts.get("enhance") != "off" and not chatgpt.status()["connected"]:
+            jobs.notice(job_id, "ChatGPT не подключён — отправляю описание как есть. Войдите через ChatGPT, чтобы GPT дописывал промпт.")
+        jobs.update(job_id, prompt=idea or "A high-quality picture based on the reference images.", prompt_by="user", summary="")
+    _generate(job_id)
+
+
+def _canvas(job):
+    """Width/height to pick the output ratio from: the explicit ratio, else the scene or first reference."""
+    ratio = job["options"].get("ratio")
+    if ratio and ratio != "auto":
+        w, h = ratio.split(":")
+        return int(w), int(h)
+    info = job.get("scene_info") or (job["refs"][0] if job.get("refs") else {})
+    return info.get("width", 1), info.get("height", 1)
+
+
 def start(job_id):
     jobs._cancel.discard(job_id)
     jobs._executor.submit(_guard, job_id, _pipeline)
@@ -191,8 +299,8 @@ def _generate(job_id, count=None):
     d = jobs.folder(job_id)
     opts = job["options"]
     provider = providers.get("dreamina")
-    refs = [d / job["guide"]] + [d / r["send"] for r in job["refs"]]
-    info = job["scene_info"]
+    refs = ([d / job["guide"]] if job.get("guide") else []) + [d / r["send"] for r in job["refs"]]
+    width, height = _canvas(job)
     count = count or opts["count"]
     jobs.update(job_id, status="generating")
     requests_ = list(job.get("requests") or [])
@@ -200,7 +308,7 @@ def _generate(job_id, count=None):
     for i in range(count):
         jobs.log(job_id, f"Dreamina рисует · {providers.Dreamina.image_models[opts['image_model']]}" + (f" · вариант {i + 1}/{count}" if count > 1 else ""), 40, "generate")
         try:
-            jobid, payload = provider.submit_image(job["prompt"], refs, opts["image_model"], info["width"], info["height"], hd=opts.get("quality") == "4k")
+            jobid, payload = provider.submit_image(job["prompt"], refs, opts["image_model"], width, height, hd=opts.get("quality") == "4k")
         except Exception as exc:
             if len(requests_) > start or any(r["state"] == "pending" for r in requests_):
                 jobs.notice(job_id, f"Вариант {i + 1} не отправлен — довожу уже отправленные.")
@@ -260,7 +368,7 @@ def _collect(job_id):
 def _score(job_id, images):
     job = jobs.load(job_id)
     d = jobs.folder(job_id)
-    if job["options"]["mode"] != "object" and faces.available():
+    if job["options"]["mode"] not in ("object", "free") and faces.available():
         jobs.log(job_id, "Сравниваю лица с вашими фото", 90, "finish")
         refs = [d / r["file"] for r in job["refs"] if r["role"] == "face"] or [d / r["file"] for r in job["refs"]]
         try:
@@ -290,7 +398,7 @@ def _thumbnail(src, dst, size=640):
 def more(job_id, count=1):
     """More variants from the same prompt (a new paid generation)."""
     job = jobs.load(job_id)
-    if job.get("kind") != "photo" or job["status"] != "done":
+    if job.get("kind") not in ("photo", "image") or job["status"] != "done":
         raise ValueError("Ещё варианты можно, когда готовы текущие.")
     count = max(1, min(MAX_VARIANTS, int(count)))
     jobs.update(job_id, status="running", stage="Ещё варианты", progress=40)
@@ -311,7 +419,7 @@ def regenerate(job_id, prompt, count=1):
     """Draw again with a prompt the user edited (a new paid generation)."""
     job = jobs.load(job_id)
     prompt = " ".join((prompt or "").split())
-    if job.get("kind") != "photo" or job["status"] != "done":
+    if job.get("kind") not in ("photo", "image") or job["status"] != "done":
         raise ValueError("Перерисовать можно, когда готовы текущие варианты.")
     if len(prompt) < 20:
         raise ValueError("Промпт слишком короткий.")
@@ -323,7 +431,7 @@ def regenerate(job_id, prompt, count=1):
 def refine(job_id, image=None, count=1):
     """GPT looks at a result next to the references and rewrites the prompt to fix what is off."""
     job = jobs.load(job_id)
-    if job.get("kind") != "photo" or job["status"] != "done":
+    if job.get("kind") not in ("photo", "image") or job["status"] != "done":
         raise ValueError("Улучшать можно, когда готовы текущие варианты.")
     if not chatgpt.status()["connected"]:
         raise ValueError("Для улучшения войдите через ChatGPT (кнопка вверху справа).")
@@ -336,6 +444,19 @@ def refine(job_id, image=None, count=1):
 def _refine(job_id, image, count):
     job = jobs.load(job_id)
     d = jobs.folder(job_id)
+    if job.get("kind") == "image":
+        refs = job["refs"]
+        text = "\n".join([
+            photo_prompt.free_request(job.get("idea", ""), len(refs), providers.Dreamina.image_models[job["options"]["image_model"]]),
+            f"Image {len(refs) + 1} is the GENERATED picture to review.",
+            f"Prompt that produced it: {job['prompt']}",
+        ])
+        answer = chatgpt.respond(photo_prompt.FREE_REVIEW_GUIDE, text, [d / r["send"] for r in refs] + [d / image])
+        result = photo_prompt.parse(answer)
+        _remember_prompt(job_id, result["prompt"], "gpt-review", result["summary"])
+        jobs.log(job_id, "GPT исправил промпт: " + (result["summary"] or "готово"))
+        _generate(job_id, count)
+        return
     template = templates.BY_ID[job["options"]["template"]]
     refs = job["refs"]
     roles = photo_prompt.image_roles(refs, job.get("masked"))
@@ -346,7 +467,7 @@ def _refine(job_id, image, count):
         + (f" (face likeness score {score['score']}/100)" if score and score.get("face") else ""),
         f"Prompt that produced it: {job['prompt']}",
     ])
-    images = [d / job["guide"]] + [d / r["send"] for r in refs] + [d / image]
+    images = ([d / job["guide"]] if job.get("guide") else []) + [d / r["send"] for r in refs] + [d / image]
     try:
         answer = chatgpt.respond(photo_prompt.REVIEW_GUIDE, text, images)
     except chatgpt.ChatGPTError as exc:
@@ -365,12 +486,15 @@ def retry(job_id):
     if any(r["state"] == "pending" for r in job.get("requests") or []):
         jobs.update(job_id, status="generating", error=None)
         jobs._executor.submit(_guard, job_id, _collect)
-    elif job.get("prompt") and job.get("guide"):
+    elif job.get("prompt") and (job.get("guide") or job.get("kind") == "image"):
         jobs.update(job_id, status="running", error=None)
         jobs._executor.submit(_guard, job_id, _generate)
     else:
         jobs.update(job_id, requests=[], images=[])
-        start(job_id)
+        if job.get("kind") == "image":
+            jobs._executor.submit(_guard, job_id, _pipeline_free)
+        else:
+            start(job_id)
 
 
 def resume(job):

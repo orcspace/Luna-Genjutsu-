@@ -234,3 +234,63 @@ def test_dreamina_image_request_shape(monkeypatch, tmp_path):
     res = d.poll_image("user:1-dreamina:US:me@x.com-image:7")
     assert res["urls"] == ["https://x/1.png", "https://x/2.png"]
     assert calls[-1][0].endswith("/images/user%3A1-dreamina%3AUS%3Ame%40x.com-image%3A7")
+
+
+def post_image(client, photo_fixture, refs=0, **form):
+    files = [("refs", (f"r{i}.jpg", open(photo_fixture(f"r{i}.jpg", (800, 600)), "rb"), "image/jpeg")) for i in range(refs)]
+    return client.post("/api/image-jobs", files=files or None, data={"count": "1", **form})
+
+
+def test_free_generation_with_gpt(client, photo, monkeypatch):
+    monkeypatch.setattr(chatgpt, "status", lambda: {"connected": True})
+    asked = {}
+
+    def respond(instructions, text, images=()):
+        asked.update(instructions=instructions, text=text, images=[p.name for p in images])
+        return '{"prompt": "An astronaut cat standing on the Moon, low angle, cinematic rim light, the cat from image 1.", "summary_ru": "Кот-астронавт на Луне"}'
+
+    monkeypatch.setattr(chatgpt, "respond", respond)
+    monkeypatch.setattr(faces, "score_still", lambda *a, **k: pytest.fail("no face scoring in plain generation"))
+    r = post_image(client, photo, refs=2, prompt="кот-астронавт на Луне, как кот с фото 1", ratio="16:9", image_model="gpt-image-2.5-sunburst")
+    assert r.status_code == 200, r.text
+    job = wait(client, r.json()["id"])
+    assert job["status"] == "done", job["error"]
+    assert job["kind"] == "image" and job["prompt_by"] == "gpt" and job["summary"] == "Кот-астронавт на Луне"
+    assert asked["instructions"] == photo_prompt.FREE_GUIDE and "кот-астронавт" in asked["text"] and "image 1, image 2" in asked["text"]
+    assert asked["images"] == ["photo-ref1.jpg", "photo-ref2.jpg"]
+    sent = client.state["submitted"][-1]
+    assert sent["refs"] == ["photo-ref1.jpg", "photo-ref2.jpg"] and sent["ratio"] == (16, 9) and sent["model"] == "gpt-image-2.5-sunburst"
+    assert job["result"] and client.get(f"/files/{job['id']}/thumb.jpg").status_code == 200
+
+    # The review loop works for plain generation too.
+    monkeypatch.setattr(chatgpt, "respond", lambda instructions, text, images=(): (
+        asked.update(review=instructions, review_images=[p.name for p in images])
+        or '{"prompt": "An astronaut cat on the Moon, the helmet visor reflects Earth, low angle.", "summary_ru": "добавляю отражение Земли"}'))
+    client.post(f"/api/jobs/{job['id']}/refine")
+    job = wait(client, job["id"])
+    assert asked["review"] == photo_prompt.FREE_REVIEW_GUIDE and asked["review_images"][-1] == "out-1.png"
+    assert job["prompt_by"] == "gpt-review" and len(job["images"]) == 2
+
+
+def test_free_generation_without_gpt_sends_the_idea(client, photo, monkeypatch):
+    monkeypatch.setattr(chatgpt, "status", lambda: {"connected": False})
+    job = wait(client, post_image(client, photo, prompt="закат над морем, плёнка").json()["id"])
+    assert job["status"] == "done" and job["prompt"] == "закат над морем, плёнка" and job["prompt_by"] == "user"
+    assert client.state["submitted"][-1]["ratio"] == (1, 1) and client.state["submitted"][-1]["refs"] == []
+    assert any("ChatGPT не подключён" in n for n in job["notices"])
+    # "As written" skips GPT without a notice.
+    job = wait(client, post_image(client, photo, prompt="закат", enhance="off").json()["id"])
+    assert not any("ChatGPT" in n for n in job["notices"])
+
+
+def test_free_generation_auto_ratio_follows_first_reference(client, photo, monkeypatch):
+    monkeypatch.setattr(chatgpt, "status", lambda: {"connected": False})
+    job = wait(client, post_image(client, photo, refs=1, prompt="", ratio="auto", enhance="off").json()["id"])
+    assert job["status"] == "done" and client.state["submitted"][-1]["ratio"] == (800, 600)
+
+
+def test_free_generation_validation(client, photo):
+    assert post_image(client, photo, prompt="").status_code == 400
+    assert post_image(client, photo, prompt="x", ratio="5:1").status_code == 400
+    assert post_image(client, photo, prompt="x", image_model="dalle").status_code == 400
+    assert post_image(client, photo, prompt="x", refs=7).status_code == 400

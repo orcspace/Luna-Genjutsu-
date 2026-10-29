@@ -33,11 +33,34 @@
   <!-- ===== left: create panel ===== -->
   <aside class="panel" id="createCard">
     <form id="form" autocomplete="off">
-      <div class="modes" id="modeSwitch" hidden>
-        <button type="button" data-mode="photo" class="on">Фото</button>
-        <button type="button" data-mode="video">Видео</button>
+      <div class="modes" id="modeSwitch">
+        <button type="button" data-mode="photo" class="on" title="Вы на чужом фото: замена человека, образа, места, стиля">Genjutsu</button>
+        <button type="button" data-mode="image" title="Обычная генерация картинок по описанию и фото">Генерация</button>
+        <button type="button" data-mode="video" id="videoModeBtn" hidden>Видео</button>
       </div>
-      <section class="block">
+      <section class="block image-only">
+        <div class="block-head"><h2>Что нарисовать</h2><span class="muted small">можно по-русски</span></div>
+        <textarea name="prompt" id="ideaInput" rows="4" placeholder="Например: кот-астронавт на Луне, кинематографичный свет, вид снизу"></textarea>
+        <div class="field idea-tools">
+          <div class="pills" data-for="penhance">
+            <button type="button" data-value="auto" class="on">GPT улучшит промпт</button>
+            <button type="button" data-value="off">Как написал</button>
+          </div>
+          <select name="penhance" hidden><option value="auto">auto</option><option value="off">off</option></select>
+        </div>
+      </section>
+      <section class="block image-only">
+        <div class="block-head"><h2>Фото-референсы</h2><span class="muted small">необязательно, до 6: люди, стиль, предметы</span></div>
+        <label class="drop refs-drop" id="refsDrop">
+          <input type="file" name="refs" accept="image/*,.heic,.heif" multiple hidden>
+          <div class="drop-empty">
+            <svg viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M21 5v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2zM8.5 13.5 5 18h14l-4.5-6-3.5 4.5z"/></svg>
+            <b>Добавьте фото</b><span>в описании можно ссылаться: «человек с фото 1 в стиле фото 2»</span>
+          </div>
+          <div class="refs-grid" id="refsGrid" hidden></div>
+        </label>
+      </section>
+      <section class="block gv-only">
         <div class="block-head"><h2>Шаблон</h2><span class="muted small" id="tplSubtitle"></span></div>
         <input type="hidden" name="template" value="hero">
         <div class="templates" id="templates"></div>
@@ -73,7 +96,7 @@
         </label>
       </section>
 
-      <section class="block">
+      <section class="block gv-only">
         <div class="block-head"><h2 id="photosTitle">Ваши фото</h2><span class="muted small" id="photosHint">лицо и полный рост — лучше оба</span></div>
         <div class="photos" id="objectPhotos" hidden>
           <label class="drop photo-drop" data-role="object">
@@ -104,15 +127,30 @@
       </section>
 
       <section class="block">
-        <div class="block-head"><h2>Генерация</h2></div>
-        <p class="gpt-line photo-only" id="gptLine"></p>
-        <div class="field photo-only">
+        <div class="block-head"><h2>Параметры</h2></div>
+        <p class="gpt-line pi-only" id="gptLine"></p>
+        <div class="field pi-only">
           <span>Модель картинок <small>Dreamina по подписке</small></span>
           <div class="pills" id="imageModelPills"></div>
           <select name="image_model" id="imageModelSelect" hidden></select>
         </div>
-        <div class="field photo-only">
-          <span>Вариантов <small>лучший выбирается по сходству лица</small></span>
+        <div class="field image-only">
+          <span>Формат</span>
+          <div class="pills" data-for="ratio">
+            <button type="button" data-value="auto" title="Как у первого референса (без референсов — квадрат)">Авто</button>
+            <button type="button" data-value="1:1" class="on">1:1</button>
+            <button type="button" data-value="3:4">3:4</button>
+            <button type="button" data-value="4:3">4:3</button>
+            <button type="button" data-value="9:16">9:16</button>
+            <button type="button" data-value="16:9">16:9</button>
+            <button type="button" data-value="2:3">2:3</button>
+            <button type="button" data-value="3:2">3:2</button>
+            <button type="button" data-value="21:9">21:9</button>
+          </div>
+          <select name="ratio" hidden><option value="auto">auto</option><option value="1:1" selected>1:1</option><option value="3:4">3:4</option><option value="4:3">4:3</option><option value="9:16">9:16</option><option value="16:9">16:9</option><option value="2:3">2:3</option><option value="3:2">3:2</option><option value="21:9">21:9</option></select>
+        </div>
+        <div class="field pi-only">
+          <span>Вариантов <small id="countHint">лучший выбирается по сходству лица</small></span>
           <div class="pills" data-for="count">
             <button type="button" data-value="1">1</button>
             <button type="button" data-value="2" class="on">2</button>
@@ -120,7 +158,7 @@
           </div>
           <select name="count" hidden><option value="1">1</option><option value="2" selected>2</option><option value="4">4</option></select>
         </div>
-        <div class="field photo-only">
+        <div class="field pi-only">
           <span>Качество</span>
           <div class="pills" data-for="pquality">
             <button type="button" data-value="std" class="on">Стандарт</button>
@@ -153,12 +191,12 @@
           <select name="takes" hidden><option value="1">1</option><option value="2">2</option><option value="3">3</option></select>
         </div>
         </div>
-        <label class="field">
+        <label class="field gv-only">
           <span>Дополнительно <small id="extraHint">необязательно</small></span>
           <input name="extra" id="extraInput" placeholder="в белом худи, золотой час">
         </label>
 
-        <details class="advanced">
+        <details class="advanced gv-only">
           <summary>Тонкие настройки</summary>
           <div class="grid">
             <label class="field">
@@ -226,8 +264,8 @@
           <span>На фото я или человек, который дал согласие на такое видео.</span>
         </label>
         <button type="submit" class="primary big" id="submitBtn">
-          <svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M12 2l2.4 6.6L21 11l-6.6 2.4L12 20l-2.4-6.6L3 11l6.6-2.4z"/></svg>
-          Сгенерировать
+          <svg class="spark" viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M12 2l2.4 6.6L21 11l-6.6 2.4L12 20l-2.4-6.6L3 11l6.6-2.4z"/></svg>
+          <span id="submitLabel">Сгенерировать</span>
         </button>
         <div class="summary" id="summary"></div>
         <div class="hint" id="formHint" role="status"></div>
@@ -270,6 +308,14 @@
       </div>
 
       <div class="alert error" id="jobError" hidden></div>
+
+      <div class="gen-wait" id="genWait" hidden>
+        <div class="gen-frame">
+          <div class="gen-orb" aria-hidden="true"><i></i><i></i><svg viewBox="0 0 32 32" width="44" height="44"><circle cx="16" cy="16" r="13" fill="var(--accent)"/><circle cx="21" cy="12" r="11" fill="#141416"/></svg></div>
+          <b id="genWaitText">Рисуем…</b>
+          <span class="muted small">прошло <span id="genWaitTime">0:00</span> · обычно меньше минуты</span>
+        </div>
+      </div>
 
       <div class="review-box" id="reviewBox" hidden>
         <p>Проверьте маску: сверху оригинал, снизу то, что получит Seedance. Человек должен быть полностью закрыт силуэтом.</p>

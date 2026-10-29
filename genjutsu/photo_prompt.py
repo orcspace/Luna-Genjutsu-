@@ -50,6 +50,37 @@ You get the numbered reference images (as described in the request) and, LAST, t
 
 Answer with JSON only: {"prompt": "...", "summary_ru": "что исправляем — коротко, по-русски"}"""
 
+FREE_GUIDE = """You write ONE prompt for a text-and-reference image model (GPT Image 2.5, Seedream 5, Nano Banana Pro)
+from the user's idea. The idea may be in Russian or any language; the prompt is in English.
+
+1. Keep the user's intent exactly: subject, action, mood, anything they named. Do not add new main subjects.
+2. Make it concrete: subject details, setting, composition and framing, camera and lens (for photos), lighting,
+   colour palette, style or medium, level of detail. One paragraph, 60-160 words, no markdown.
+3. If reference images are listed, name them as "image 1", "image 2", ... and say what each one gives (the
+   person or object to keep, the style to copy, the composition or pose to follow), as the user intended.
+4. Text that must appear in the picture goes in double quotes, spelled exactly.
+5. Never name or guess who a person in a reference is. Nothing sexual, no minors, no real person made to look
+   like someone else.
+6. End with short negatives that fit the request (e.g. no watermark, no extra fingers, no distorted text).
+
+Answer with JSON only: {"prompt": "...", "summary_ru": "одна короткая фраза по-русски: что получится"}"""
+
+FREE_REVIEW_GUIDE = """You review a picture made by an image model and fix its prompt.
+You get the user's request, the prompt that was used, any numbered reference images, and LAST the generated picture.
+Find where the picture misses the request (subject, details, composition, style, lighting, text spelling,
+anatomy, artifacts) or ignores a reference, and rewrite the prompt to fix the biggest problems concretely while
+keeping what was right. English, one paragraph, 60-160 words, same safety rules.
+
+Answer with JSON only: {"prompt": "...", "summary_ru": "что исправляем — коротко, по-русски"}"""
+
+
+def free_request(idea, ref_count, model):
+    lines = [f"User's idea: {idea.strip() or '(no text: make a fitting picture from the references)'}", f"Target model: {model}."]
+    if ref_count:
+        lines.append("Reference images, in order: " + ", ".join(f"image {i}" for i in range(1, ref_count + 1)) + ".")
+    return "\n".join(lines)
+
+
 ROLE_TEXT = {
     "body": "the user's full-body photo (body shape, proportions, outfit)",
     "face": "the user's face close-up (identity reference)",

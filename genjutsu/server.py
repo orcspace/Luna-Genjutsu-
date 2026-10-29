@@ -209,6 +209,24 @@ def create_photo_job(
     })
 
 
+@app.post("/api/image-jobs")
+def create_image_job(
+    request: Request,
+    prompt: str = Form(""),
+    refs: List[UploadFile] = File(default_factory=list),
+    image_model: str = Form(""),
+    count: int = Form(1),
+    quality: str = Form("std"),
+    ratio: str = Form("auto"),
+    enhance: str = Form("auto"),
+):
+    _local_only(request)
+    _check_choice(quality, ("std", "4k"))
+    _check_choice(enhance, ("auto", "off"))
+    files = [f.file for f in refs if f.filename]
+    return photo.create_free(prompt, files, {"image_model": image_model or None, "count": count, "quality": quality, "ratio": ratio, "enhance": enhance})
+
+
 @app.post("/api/jobs/{job_id}/more")
 def more_variants(job_id: str, request: Request, count: int = 1):
     _local_only(request)
@@ -336,7 +354,7 @@ def files(job_id: str, name: str, download: int = 0):
     if not path.exists() and name == "thumb.jpg":
         # Photo jobs made before gallery thumbnails existed get one on first view.
         job = jobs.load(job_id)
-        if job.get("kind") == "photo" and job.get("result"):
+        if job.get("kind") in ("photo", "image") and job.get("result"):
             photo._thumbnail(jobs.folder(job_id) / job["result"], path)
     if not path.exists():
         raise HTTPException(404)
