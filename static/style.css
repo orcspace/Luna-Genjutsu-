@@ -242,3 +242,8 @@ dialog h2 { font-size: 18px; }
 .photo-thumbs .pct { position: absolute; top: 6px; right: 6px; font-size: 11px; padding: 2px 7px; border-radius: 999px; background: rgba(0,0,0,.75); }
 .summary-line { margin: 0 0 12px; font-size: 14px; }
 @media (max-width: 800px) { .gpt-btn span { display: none; } .gpt-btn { padding: 8px; } }
+
+.prompt-edit { margin-top: 12px; }
+.prompt-edit textarea { width: 100%; background: var(--raised); color: var(--text); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px 12px; font: 13px/1.5 ui-monospace, monospace; resize: vertical; }
+.prompt-edit textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.gpt-act { border-color: rgba(255, 214, 10, .45); color: var(--accent); }

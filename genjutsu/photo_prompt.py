@@ -35,6 +35,21 @@ images described in the request. Follow this guide exactly.
 
 Answer with JSON only: {"prompt": "...", "summary_ru": "одна короткая фраза по-русски: что получится"}"""
 
+REVIEW_GUIDE = """You review a picture made by a reference-based image model for Luna Genjutsu and fix its prompt.
+You get the numbered reference images (as described in the request) and, LAST, the generated picture.
+
+1. Compare the generated picture with the references, in this order of importance: the user's identity (face
+   shape, eyes, nose, mouth, skin tone, hair colour, length and style, facial hair, age), body proportions,
+   outfit, pose and framing versus the scene, lighting and shadows, integration (scale, perspective, edges),
+   leftover silhouette colours or guide lines, extra or broken fingers, duplicated people, text.
+2. Rewrite the prompt so the next picture fixes the biggest problems: name each fix explicitly and concretely
+   (e.g. "the hair is short and dark brown, cropped at the sides", not "fix the hair"), keep everything that was
+   already right, keep the image numbering and the structure of the original prompt.
+3. Same rules as the writing guide: English, one paragraph, 90-180 words, never name or guess who the person
+   is, nothing sexual, no minors.
+
+Answer with JSON only: {"prompt": "...", "summary_ru": "что исправляем — коротко, по-русски"}"""
+
 ROLE_TEXT = {
     "body": "the user's full-body photo (body shape, proportions, outfit)",
     "face": "the user's face close-up (identity reference)",

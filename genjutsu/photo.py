@@ -11,6 +11,8 @@ import time
 import traceback
 from datetime import datetime
 
+from PIL import Image
+
 from . import chatgpt, faces, jobs, masking, photo_prompt, photos, providers, templates
 from .config import setting
 
@@ -194,15 +196,21 @@ def _generate(job_id, count=None):
     count = count or opts["count"]
     jobs.update(job_id, status="generating")
     requests_ = list(job.get("requests") or [])
+    start = len(requests_)
     for i in range(count):
         jobs.log(job_id, f"Dreamina рисует · {providers.Dreamina.image_models[opts['image_model']]}" + (f" · вариант {i + 1}/{count}" if count > 1 else ""), 40, "generate")
         try:
             jobid, payload = provider.submit_image(job["prompt"], refs, opts["image_model"], info["width"], info["height"], hd=opts.get("quality") == "4k")
-        except Exception:
-            if not any(r["state"] == "pending" for r in requests_):
-                raise
-            jobs.notice(job_id, f"Вариант {i + 1} не отправлен — довожу уже отправленные.")
-            break
+        except Exception as exc:
+            if len(requests_) > start or any(r["state"] == "pending" for r in requests_):
+                jobs.notice(job_id, f"Вариант {i + 1} не отправлен — довожу уже отправленные.")
+                break
+            if job.get("images"):
+                # A later round failed to start: the pictures already made stay, the job stays done.
+                jobs.notice(job_id, f"Новый вариант не отправлен: {exc}")
+                jobs.update(job_id, status="done", stage="Готово", stage_key="done", progress=100)
+                return
+            raise
         requests_.append({"jobid": jobid, "state": "pending"})
         # Saved right away: from here on it is only ever polled.
         jobs.update(job_id, requests=requests_)
@@ -264,7 +272,19 @@ def _score(job_id, images):
         except Exception as exc:
             jobs.log(job_id, f"Оценка сходства: {exc}")
             jobs.notice(job_id, "Оценка сходства недоступна — подробности в журнале.")
+    _thumbnail(d / images[0]["file"], d / "thumb.jpg")
     jobs.update(job_id, images=images, result=images[0]["file"], status="done", progress=100, stage="Готово", stage_key="done")
+
+
+def _thumbnail(src, dst, size=640):
+    """Small preview for the gallery, so cards don't pull 4K originals."""
+    try:
+        with Image.open(src) as im:
+            im = im.convert("RGB")
+            im.thumbnail((size, size), Image.Resampling.LANCZOS)
+            im.save(dst, "JPEG", quality=85)
+    except OSError:
+        shutil.copyfile(src, dst)
 
 
 def more(job_id, count=1):
@@ -275,6 +295,68 @@ def more(job_id, count=1):
     count = max(1, min(MAX_VARIANTS, int(count)))
     jobs.update(job_id, status="running", stage="Ещё варианты", progress=40)
     jobs._executor.submit(_guard, job_id, lambda j: _generate(j, count))
+
+
+def _remember_prompt(job_id, prompt, by, summary=""):
+    def apply(job):
+        job.setdefault("prompts", [])
+        if job.get("prompt"):
+            job["prompts"].append({"prompt": job["prompt"], "by": job.get("prompt_by"), "t": jobs._now()})
+            job["prompts"] = job["prompts"][-20:]
+        job.update(prompt=prompt, prompt_by=by, summary=summary or job.get("summary", ""))
+    jobs.mutate(job_id, apply)
+
+
+def regenerate(job_id, prompt, count=1):
+    """Draw again with a prompt the user edited (a new paid generation)."""
+    job = jobs.load(job_id)
+    prompt = " ".join((prompt or "").split())
+    if job.get("kind") != "photo" or job["status"] != "done":
+        raise ValueError("Перерисовать можно, когда готовы текущие варианты.")
+    if len(prompt) < 20:
+        raise ValueError("Промпт слишком короткий.")
+    _remember_prompt(job_id, prompt[:5000], "user")
+    jobs.update(job_id, status="running", stage="Перерисовываю с вашим промптом", progress=40)
+    jobs._executor.submit(_guard, job_id, lambda j: _generate(j, max(1, min(MAX_VARIANTS, int(count)))))
+
+
+def refine(job_id, image=None, count=1):
+    """GPT looks at a result next to the references and rewrites the prompt to fix what is off."""
+    job = jobs.load(job_id)
+    if job.get("kind") != "photo" or job["status"] != "done":
+        raise ValueError("Улучшать можно, когда готовы текущие варианты.")
+    if not chatgpt.status()["connected"]:
+        raise ValueError("Для улучшения войдите через ChatGPT (кнопка вверху справа).")
+    files = [im["file"] for im in job["images"]]
+    image = image if image in files else files[0]
+    jobs.update(job_id, status="running", stage="GPT сравнивает результат с вашими фото", progress=30, stage_key="prompt")
+    jobs._executor.submit(_guard, job_id, lambda j: _refine(j, image, max(1, min(MAX_VARIANTS, int(count)))))
+
+
+def _refine(job_id, image, count):
+    job = jobs.load(job_id)
+    d = jobs.folder(job_id)
+    template = templates.BY_ID[job["options"]["template"]]
+    refs = job["refs"]
+    roles = photo_prompt.image_roles(refs, job.get("masked"))
+    score = next((im.get("score") for im in job["images"] if im["file"] == image), None)
+    text = "\n".join([
+        photo_prompt.request_text(template, job["options"], refs, job.get("masked"), providers.Dreamina.image_models[job["options"]["image_model"]]),
+        f"- image {len(roles) + 1}: the GENERATED picture to review"
+        + (f" (face likeness score {score['score']}/100)" if score and score.get("face") else ""),
+        f"Prompt that produced it: {job['prompt']}",
+    ])
+    images = [d / job["guide"]] + [d / r["send"] for r in refs] + [d / image]
+    try:
+        answer = chatgpt.respond(photo_prompt.REVIEW_GUIDE, text, images)
+    except chatgpt.ChatGPTError as exc:
+        if "не поддерживает" in str(exc):
+            raise chatgpt.ChatGPTError("Подписка ChatGPT не принимает картинки в сторонних приложениях, поэтому GPT не может сравнить результат. Отредактируйте промпт вручную.")
+        raise
+    result = photo_prompt.parse(answer)
+    _remember_prompt(job_id, result["prompt"], "gpt-review", result["summary"])
+    jobs.log(job_id, "GPT исправил промпт: " + (result["summary"] or "готово"))
+    _generate(job_id, count)
 
 
 def retry(job_id):

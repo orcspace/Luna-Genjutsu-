@@ -195,6 +195,21 @@ def more_variants(job_id: str, request: Request, count: int = 1):
     return jobs.load(job_id)
 
 
+@app.post("/api/jobs/{job_id}/refine")
+def refine_photo(job_id: str, request: Request, image: str = "", count: int = 1):
+    _local_only(request)
+    photo.refine(_id(job_id), image or None, count)
+    return jobs.load(job_id)
+
+
+@app.post("/api/jobs/{job_id}/regenerate")
+async def regenerate_photo(job_id: str, request: Request):
+    _local_only(request)
+    body = await request.json()
+    photo.regenerate(_id(job_id), str(body.get("prompt") or ""), int(body.get("count") or 1))
+    return jobs.load(job_id)
+
+
 @app.get("/api/chatgpt")
 def chatgpt_status():
     return chatgpt.status()
@@ -280,6 +295,11 @@ def files(job_id: str, name: str, download: int = 0):
     if not SERVABLE.match(name):
         raise HTTPException(404)
     path = jobs.folder(_id(job_id)) / name
+    if not path.exists() and name == "thumb.jpg":
+        # Photo jobs made before gallery thumbnails existed get one on first view.
+        job = jobs.load(job_id)
+        if job.get("kind") == "photo" and job.get("result"):
+            photo._thumbnail(jobs.folder(job_id) / job["result"], path)
     if not path.exists():
         raise HTTPException(404)
     return FileResponse(path, filename=f"genjutsu-{job_id}-{name}" if download else None)

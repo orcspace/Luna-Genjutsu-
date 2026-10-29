@@ -87,6 +87,64 @@ def test_gpt_writes_the_prompt_and_dreamina_draws(client, photo, monkeypatch):
     assert [im["score"]["score"] for im in job["images"]] == [80, 55, 30]
 
 
+def test_refine_and_edit_the_prompt(client, photo, monkeypatch):
+    monkeypatch.setattr(chatgpt, "status", lambda: {"connected": True})
+    monkeypatch.setattr(faces, "available", lambda: False)
+    asked = []
+
+    def respond(instructions, text, images=()):
+        asked.append((instructions, text, [p.name for p in images]))
+        if instructions == photo_prompt.REVIEW_GUIDE:
+            return '{"prompt": "Replace the person in image 1 with the person from image 2. The hair is short and dark brown.", "summary_ru": "делаю волосы короче"}'
+        return '{"prompt": "Replace the person in image 1 with the person from image 2 and image 3 please.", "summary_ru": "ок"}'
+
+    monkeypatch.setattr(chatgpt, "respond", respond)
+    job = wait(client, post(client, photo, count="1").json()["id"])
+    first = job["prompt"]
+    r = client.post(f"/api/jobs/{job['id']}/refine?image={job['images'][0]['file']}")
+    assert r.status_code == 200, r.text
+    job = wait(client, job["id"])
+    review = asked[-1]
+    assert review[0] == photo_prompt.REVIEW_GUIDE and review[2][-1] == "out-1.png" and first in review[1]
+    assert job["prompt_by"] == "gpt-review" and "short and dark brown" in job["prompt"] and job["summary"] == "делаю волосы короче"
+    assert job["prompts"][0]["prompt"] == first and len(job["images"]) == 2
+
+    r = client.post(f"/api/jobs/{job['id']}/regenerate", json={"prompt": "  My own prompt:   replace the person in image 1 with image 2.  ", "count": 1})
+    assert r.status_code == 200, r.text
+    job = wait(client, job["id"])
+    assert job["prompt_by"] == "user" and job["prompt"] == "My own prompt: replace the person in image 1 with image 2."
+    assert client.state["submitted"][-1]["prompt"] == job["prompt"] and len(job["images"]) == 3
+    assert client.post(f"/api/jobs/{job['id']}/regenerate", json={"prompt": "short"}).status_code == 400
+
+
+def test_failed_extra_round_keeps_the_job_done(client, photo, monkeypatch):
+    monkeypatch.setattr(chatgpt, "status", lambda: {"connected": False})
+    monkeypatch.setattr(faces, "available", lambda: False)
+    job = wait(client, post(client, photo, count="1").json()["id"])
+    assert client.get(f"/files/{job['id']}/thumb.jpg").status_code == 200
+    from genjutsu import jobs as jobs_module
+    thumb = jobs_module.folder(job["id"]) / "thumb.jpg"
+    thumb.unlink()
+    assert client.get(f"/files/{job['id']}/thumb.jpg").status_code == 200 and thumb.exists()  # rebuilt for older jobs
+
+    def broke(*a, **k):
+        raise providers.ProviderError("Dreamina: закончились кредиты")
+
+    monkeypatch.setattr(providers.Dreamina, "submit_image", broke)
+    client.post(f"/api/jobs/{job['id']}/more")
+    job = wait(client, job["id"])
+    assert job["status"] == "done" and len(job["images"]) == 1
+    assert any("закончились кредиты" in n for n in job["notices"])
+
+
+def test_refine_needs_chatgpt(client, photo, monkeypatch):
+    monkeypatch.setattr(chatgpt, "status", lambda: {"connected": False})
+    monkeypatch.setattr(faces, "available", lambda: False)
+    job = wait(client, post(client, photo, count="1").json()["id"])
+    r = client.post(f"/api/jobs/{job['id']}/refine")
+    assert r.status_code == 400 and "ChatGPT" in r.json()["detail"]
+
+
 def test_without_chatgpt_the_builtin_prompt_is_used(client, photo, monkeypatch):
     monkeypatch.setattr(chatgpt, "status", lambda: {"connected": False})
     monkeypatch.setattr(faces, "available", lambda: False)

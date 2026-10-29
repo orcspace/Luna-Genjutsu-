@@ -111,6 +111,7 @@ $$("#modeSwitch button").forEach(b => b.onclick = () => setMode(b.dataset.mode))
 
 function renderGpt(st) {
   st = st || {};
+  if (config && st.connected !== undefined) config.chatgpt = st;
   const btn = $("#gptBtn");
   btn.classList.toggle("on", !!st.connected);
   $("#gptLabel").textContent = st.connected ? `ChatGPT${st.email ? " · " + st.email : ""}` : st.login_pending ? "Ждём вход…" : "Войти через ChatGPT";
@@ -566,8 +567,13 @@ function renderPhoto(job) {
   if (sc) $("#photoScore").innerHTML = sc.face === false ? "Лицо на этом варианте не найдено" : `Сходство лица с вашими фото: <b class="pct ${pctClass(sc.score)}">${sc.score}%</b>`;
   $("#photoSummary").hidden = !job.summary;
   $("#photoSummary").textContent = job.summary || "";
-  $("#promptBy").textContent = job.prompt_by === "gpt" ? "Промпт написал GPT" : job.prompt_by ? "Промпт по шаблону" : "";
-  $("#moreBtn").disabled = job.status !== "done";
+  const idle = job.status === "done";
+  $("#moreBtn").disabled = !idle;
+  $("#refineBtn").disabled = !idle || !(config && config.chatgpt && config.chatgpt.connected);
+  $("#refineBtn").title = $("#refineBtn").disabled && idle ? "Войдите через ChatGPT, чтобы GPT мог сравнить результат" : "GPT сравнит этот вариант с вашими фото и исправит промпт";
+  $("#editPromptBtn").disabled = !idle;
+  if (!idle) $("#promptEdit").hidden = true;
+  $("#promptBy").textContent = ({ gpt: "Промпт написал GPT", "gpt-review": "Промпт исправил GPT", user: "Ваш промпт", builtin: "Промпт по шаблону" })[job.prompt_by] || "";
   $("#photoThumbs").innerHTML = images.length < 2 ? "" : images.map(im => {
     const p = im.score && im.score.face ? `<span class="pct ${pctClass(im.score.score)}">${im.score.score}%</span>` : "";
     return `<button type="button" class="${im.file === photoShown ? "on" : ""}" data-f="${escapeHtml(im.file)}"><img src="/files/${job.id}/${escapeHtml(im.file)}" alt="" loading="lazy">${p}</button>`;
@@ -576,6 +582,23 @@ function renderPhoto(job) {
 }
 
 $("#moreBtn").onclick = () => jobAction("more", "Сгенерировать ещё вариант с тем же промптом? Это спишет кредиты Dreamina.");
+$("#refineBtn").onclick = () => jobAction(`refine?image=${encodeURIComponent(photoShown || "")}`,
+  "GPT сравнит показанный вариант с вашими фото, исправит промпт и нарисует новый вариант. Это спишет кредиты Dreamina.");
+$("#editPromptBtn").onclick = async () => {
+  const job = await api(`/api/jobs/${currentJob}`);
+  $("#promptText").value = job.prompt || "";
+  $("#promptEdit").hidden = false;
+  $("#promptText").focus();
+};
+$("#promptCancel").onclick = () => { $("#promptEdit").hidden = true; };
+$("#regenBtn").onclick = async () => {
+  if (!confirm("Нарисовать новый вариант с этим промптом? Это спишет кредиты Dreamina.")) return;
+  try {
+    render(await api(`/api/jobs/${currentJob}/regenerate`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt: $("#promptText").value, count: 1 }) }));
+    $("#promptEdit").hidden = true;
+    refreshJob();
+  } catch (e) { alert(e.message); }
+};
 
 function setSrc(el, src) {
   if (el.dataset.src !== src) { el.src = src; el.dataset.src = src; }
@@ -643,7 +666,7 @@ async function loadHistory() {
     const st = j.hd && j.hd.status === "running" ? "1080p…" : STATUS_TEXT[j.status] || j.status;
     const cls = live ? "run" : j.status;
     const photoJob = j.kind === "photo";
-    const img = photoJob ? (j.result || "scene.jpg") : j.result ? `thumb.jpg?c=${j.chosen}` : "sheet.jpg";
+    const img = photoJob ? (j.result ? `thumb.jpg?r=${encodeURIComponent(j.result)}` : "scene.jpg") : j.result ? `thumb.jpg?c=${j.chosen}` : "sheet.jpg";
     const time = new Date(j.created).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
     const title = (templateList.find(t => t.id === j.options.template) || {}).title || "Замена";
     const model = photoJob ? ` · фото` : j.options.model ? ` · ${SHORT_MODEL[j.options.model] || j.options.model}` : "";

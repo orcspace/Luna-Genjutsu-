@@ -282,9 +282,18 @@
         <div class="photo-main"><img id="photoMain" alt="Результат"></div>
         <div class="score-line" id="photoScore" hidden></div>
         <div class="photo-thumbs" id="photoThumbs"></div>
+        <div class="prompt-edit" id="promptEdit" hidden>
+          <textarea id="promptText" rows="6" spellcheck="false"></textarea>
+          <div class="row">
+            <button class="primary" id="regenBtn" type="button">Перерисовать с этим промптом</button>
+            <button class="ghost" id="promptCancel" type="button">Отмена</button>
+          </div>
+        </div>
         <div class="row">
           <a class="primary" id="photoDownload" download>Скачать</a>
           <button class="secondary" id="moreBtn" type="button">Ещё вариант</button>
+          <button class="secondary gpt-act" id="refineBtn" type="button" title="GPT сравнит этот вариант с вашими фото и исправит промпт">Улучшить с GPT</button>
+          <button class="ghost" id="editPromptBtn" type="button">Изменить промпт</button>
           <span class="hint" id="promptBy"></span>
         </div>
       </div>
