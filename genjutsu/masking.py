@@ -364,3 +364,33 @@ def _contact_sheet(samples, dst, row_height=260):
 
 def save_stats(folder, stats):
     (Path(folder) / "mask-qa.json").write_text(json.dumps(stats, indent=2, ensure_ascii=False))
+
+
+def hide_person_photo(src, dst):
+    """Single-photo version of the video guide: the biggest person becomes a depth silhouette with
+    pose lines and face mesh. Returns dst, or None when nobody is found."""
+    from . import faces
+
+    rgb = faces.read_rgb(src)
+    h, w = rgb.shape[:2]
+    with faces._pose_landmarker(4, segmentation=True) as lm:
+        result = lm.detect(faces._mp_image(rgb))
+    masks = [np.squeeze(m.numpy_view()) > 0.5 for m in (result.segmentation_masks or [])]
+    if not masks:
+        return None
+    pick = max(range(len(masks)), key=lambda k: masks[k].sum())
+    pose = None
+    if pick < len(result.pose_landmarks or []):
+        pose = [[p.x, p.y, p.visibility or 0] for p in result.pose_landmarks[pick]]
+    mask = masks[pick] if pose is None else _keep_body(masks[pick], pose)
+    if mask.mean() < EMPTY_FRAME:
+        return None
+    face = next((f for f in faces.detect(rgb, num_faces=4) if mask[min(h - 1, int(f["pts"][faces.NOSE][1])), min(w - 1, int(f["pts"][faces.NOSE][0]))]), None)
+    mask = _clean(mask, w, h)
+    out = np.ascontiguousarray(np.where(mask[..., None], pseudo_depth(mask), rgb))
+    out = draw_pose(out, pose, face_lines=face is None)
+    if face is not None:
+        used = sorted({i for pairs in faces.mesh_lines().values() for pair in pairs for i in pair})
+        out = faces.draw_mesh(out, (face["pts"][used] / [w, h]).tolist(), used)
+    media.write_image(dst, cv2.cvtColor(out, cv2.COLOR_RGB2BGR), [cv2.IMWRITE_JPEG_QUALITY, 95])
+    return dst

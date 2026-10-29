@@ -15,9 +15,13 @@
   </div>
   <nav class="tabs" aria-label="Разделы">
     <button class="tab on" id="tabCreate" type="button">Создать</button>
-    <button class="tab" id="tabGallery" type="button">Мои видео <span class="count" id="galleryCount"></span></button>
+    <button class="tab" id="tabGallery" type="button">Мои работы <span class="count" id="galleryCount"></span></button>
   </nav>
   <div class="top-right">
+    <button id="gptBtn" class="gpt-btn" type="button" title="Промпты пишет GPT по вашей подписке ChatGPT">
+      <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M12 2a5 5 0 0 1 4.6 3 5 5 0 0 1 4.3 7.5A5 5 0 0 1 16 20a5 5 0 0 1-8.6-1A5 5 0 0 1 3.1 11.5 5 5 0 0 1 8 4a5 5 0 0 1 4-2zm0 2a3 3 0 0 0-3 3v5.3l3 1.7 3-1.7V7a3 3 0 0 0-3-3z"/></svg>
+      <span id="gptLabel">Войти через ChatGPT</span>
+    </button>
     <span id="providerBadge" class="badge"></span>
     <button id="openSettings" class="icon-btn" type="button" aria-label="Настройки" title="Настройки">
       <svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M19.4 13a7.5 7.5 0 0 0 0-2l2.1-1.6-2-3.4-2.5 1a7.7 7.7 0 0 0-1.7-1L15 3.3h-4L10.7 6a7.7 7.7 0 0 0-1.7 1l-2.5-1-2 3.4L6.6 11a7.5 7.5 0 0 0 0 2l-2.1 1.6 2 3.4 2.5-1a7.7 7.7 0 0 0 1.7 1l.3 2.7h4l.3-2.7a7.7 7.7 0 0 0 1.7-1l2.5 1 2-3.4zM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z" transform="translate(-1 0)"/></svg>
@@ -29,6 +33,10 @@
   <!-- ===== left: create panel ===== -->
   <aside class="panel" id="createCard">
     <form id="form" autocomplete="off">
+      <div class="modes" id="modeSwitch" hidden>
+        <button type="button" data-mode="photo" class="on">Фото</button>
+        <button type="button" data-mode="video">Видео</button>
+      </div>
       <section class="block">
         <div class="block-head"><h2>Шаблон</h2><span class="muted small" id="tplSubtitle"></span></div>
         <input type="hidden" name="template" value="hero">
@@ -39,10 +47,22 @@
         </label>
       </section>
 
-      <section class="block">
+      <section class="block photo-only">
+        <div class="block-head"><h2>Фото-референс</h2><span class="muted small">куда поставить вас</span></div>
+        <label class="drop scene-drop" id="sceneDrop">
+          <input type="file" name="scene" accept="image/*" hidden>
+          <div class="drop-empty">
+            <svg viewBox="0 0 24 24" width="26" height="26"><path fill="currentColor" d="M21 5v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2zM8.5 13.5 5 18h14l-4.5-6-3.5 4.5z"/></svg>
+            <b>Перетащите фото</b><span>кадр с человеком, позу и место которого нужно повторить</span>
+          </div>
+          <img class="drop-preview" alt="" hidden>
+        </label>
+      </section>
+
+      <section class="block video-only">
         <div class="block-head"><h2>Видео-референс</h2><span class="muted small">4–30 с, лучше один человек</span></div>
         <label class="drop video-drop" id="videoDrop">
-          <input type="file" name="video" accept="video/*" required hidden>
+          <input type="file" name="video" accept="video/*" hidden>
           <div class="drop-empty">
             <svg viewBox="0 0 24 24" width="26" height="26"><path fill="currentColor" d="M17 10.5V7a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-3.5l4 4v-11z"/></svg>
             <b>Перетащите видео</b><span>или нажмите, чтобы выбрать · MP4 / MOV / WebM</span>
@@ -84,6 +104,30 @@
 
       <section class="block">
         <div class="block-head"><h2>Генерация</h2></div>
+        <p class="gpt-line photo-only" id="gptLine"></p>
+        <div class="field photo-only">
+          <span>Модель картинок <small>Dreamina по подписке</small></span>
+          <div class="pills" id="imageModelPills"></div>
+          <select name="image_model" id="imageModelSelect" hidden></select>
+        </div>
+        <div class="field photo-only">
+          <span>Вариантов <small>лучший выбирается по сходству лица</small></span>
+          <div class="pills" data-for="count">
+            <button type="button" data-value="1">1</button>
+            <button type="button" data-value="2" class="on">2</button>
+            <button type="button" data-value="4">4</button>
+          </div>
+          <select name="count" hidden><option value="1">1</option><option value="2" selected>2</option><option value="4">4</option></select>
+        </div>
+        <div class="field photo-only">
+          <span>Качество</span>
+          <div class="pills" data-for="pquality">
+            <button type="button" data-value="std" class="on">Стандарт</button>
+            <button type="button" data-value="4k">4K <small>Seedream</small></button>
+          </div>
+          <select name="pquality" hidden><option value="std">std</option><option value="4k">4k</option></select>
+        </div>
+        <div class="video-only">
         <div class="field" id="modelField" hidden>
           <span>Модель</span>
           <div class="pills" id="modelPills"></div>
@@ -107,9 +151,10 @@
           </div>
           <select name="takes" hidden><option value="1">1</option><option value="2">2</option><option value="3">3</option></select>
         </div>
+        </div>
         <label class="field">
-          <span>Дополнительно <small>по-английски, необязательно</small></span>
-          <input name="extra" placeholder="wearing a white hoodie, golden hour light">
+          <span>Дополнительно <small id="extraHint">необязательно</small></span>
+          <input name="extra" id="extraInput" placeholder="в белом худи, золотой час">
         </label>
 
         <details class="advanced">
@@ -119,11 +164,18 @@
               <span>Кого заменить <small>англ.</small></span>
               <input name="who" value="person" placeholder="man in black jacket">
             </label>
-            <label class="field">
+            <label class="field photo-only">
+              <span>Человек на фото-референсе</span>
+              <select name="hide">
+                <option value="auto">Скрыть силуэтом (рекомендуется)</option>
+                <option value="off">Оставить как есть</option>
+              </select>
+            </label>
+            <label class="field video-only">
               <span>Провайдер</span>
               <select name="provider" id="providerSelect"></select>
             </label>
-            <label class="field">
+            <label class="field video-only">
               <span>Как скрыть человека</span>
               <select name="masking">
                 <option value="auto">Авто</option>
@@ -132,7 +184,7 @@
                 <option value="none">Не скрывать</option>
               </select>
             </label>
-            <label class="field">
+            <label class="field video-only">
               <span>Звук для липсинка</span>
               <select name="audio">
                 <option value="auto">Авто</option>
@@ -141,7 +193,7 @@
                 <option value="none">Без звука</option>
               </select>
             </label>
-            <label class="field">
+            <label class="field video-only">
               <span>Проверка маски</span>
               <select name="review">
                 <option value="auto">Если есть проблемы</option>
@@ -156,7 +208,7 @@
                 <option value="off">Как есть</option>
               </select>
             </label>
-            <label class="field">
+            <label class="field video-only">
               <span>Сетка лица</span>
               <select name="face_mesh">
                 <option value="auto">Авто</option>
@@ -185,25 +237,25 @@
   <!-- ===== right: workspace ===== -->
   <section class="workspace">
     <div id="galleryCard">
-      <div class="ws-head"><h1>Мои видео</h1><span class="muted small" id="galleryHint"></span></div>
+      <div class="ws-head"><h1>Мои работы</h1><span class="muted small" id="galleryHint"></span></div>
       <div class="gallery" id="historyList"></div>
       <div class="empty" id="emptyState" hidden>
         <div class="empty-art" aria-hidden="true">
           <svg viewBox="0 0 64 64" width="64" height="64"><circle cx="32" cy="32" r="26" fill="var(--accent)"/><circle cx="42" cy="24" r="22" fill="var(--bg)"/></svg>
         </div>
-        <h2>Первое видео — за пару минут</h2>
+        <h2>Первая работа — за минуту</h2>
         <ol class="tips">
+          <li>Нажмите «Войти через ChatGPT» вверху — промпт будет писать GPT по вашей подписке.</li>
           <li>Выберите шаблон слева — «Я в главной роли» подходит для начала.</li>
-          <li>Загрузите видео 4–15 с, где один человек и нет склеек.</li>
-          <li>Добавьте фото лица крупно и в полный рост — сходство будет выше.</li>
-          <li>Начните с черновика 720p, а лучший результат доведите до 1080p.</li>
+          <li>Загрузите фото-референс: кадр с человеком, чью позу и место нужно повторить.</li>
+          <li>Добавьте своё фото лица крупно и в полный рост — сходство будет выше.</li>
         </ol>
       </div>
     </div>
 
     <div class="job" id="jobCard" hidden>
       <div class="job-head">
-        <button class="ghost small" id="backBtn" type="button">← Все видео</button>
+        <button class="ghost small" id="backBtn" type="button">← Все работы</button>
         <span class="job-id" id="jobId"></span>
       </div>
 
@@ -222,6 +274,18 @@
         <div class="row">
           <button class="primary" id="approveBtn" type="button">Всё хорошо, отправить</button>
           <button class="ghost" id="cancelBtn" type="button">Отменить</button>
+        </div>
+      </div>
+
+      <div class="photo-result" id="photoResult" hidden>
+        <p class="summary-line" id="photoSummary" hidden></p>
+        <div class="photo-main"><img id="photoMain" alt="Результат"></div>
+        <div class="score-line" id="photoScore" hidden></div>
+        <div class="photo-thumbs" id="photoThumbs"></div>
+        <div class="row">
+          <a class="primary" id="photoDownload" download>Скачать</a>
+          <button class="secondary" id="moreBtn" type="button">Ещё вариант</button>
+          <span class="hint" id="promptBy"></span>
         </div>
       </div>
 
@@ -272,7 +336,20 @@
     <h3>Dreamina</h3>
     <label class="field"><span>USEAPI_TOKEN <small>useapi.net → API token</small></span><input name="USEAPI_TOKEN" autocomplete="off"></label>
     <label class="field"><span>DREAMINA_ACCOUNT <small>email; пусто — первый подключённый</small></span><input name="DREAMINA_ACCOUNT" autocomplete="off"></label>
-    <label class="field"><span>Модель по умолчанию</span>
+    <label class="field"><span>Модель картинок по умолчанию</span>
+      <select name="DREAMINA_IMAGE_MODEL">
+        <option value="gpt-image-2.5-flare">GPT Image 2.5 Flare</option>
+        <option value="gpt-image-2.5-sunburst">GPT Image 2.5 Sunburst</option>
+        <option value="nano-banana-pro">Nano Banana Pro</option>
+        <option value="seedream-5.0-lite">Seedream 5.0 Lite</option>
+        <option value="seedream-4.6">Seedream 4.6</option>
+      </select></label>
+    <label class="field"><span>Видео-режим (Seedance)</span>
+      <select name="SHOW_VIDEO">
+        <option value="0">Скрыт</option>
+        <option value="1">Показывать</option>
+      </select></label>
+    <label class="field"><span>Модель видео по умолчанию</span>
       <select name="DREAMINA_MODEL">
         <option value="seedance-2.5">Seedance 2.5 — реальные лица, лучшее качество</option>
         <option value="seedance-2.0">Seedance 2.0</option>

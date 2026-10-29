@@ -16,6 +16,8 @@ DEFAULTS = {
     "USEAPI_TOKEN": "",
     "DREAMINA_ACCOUNT": "",  # email or REGION:email; empty = first connected account
     "DREAMINA_MODEL": "seedance-2.5",
+    "DREAMINA_IMAGE_MODEL": "gpt-image-2.5-flare",
+    "SHOW_VIDEO": "0",  # 1 = also show the Seedance video mode
     "BYTEPLUS_API_KEY": "",
     "BYTEPLUS_BASE_URL": "https://ark.ap-southeast.bytepluses.com/api/v3",
     "BYTEPLUS_MODEL": "dreamina-seedance-2-0-260128",

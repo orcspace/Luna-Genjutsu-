@@ -505,3 +505,23 @@ def score_video(video, reference_photos, samples=16, identity=None):
         "matched": round(sum(s >= SAME_PERSON for s in found) / len(per_frame), 2),
         "frames": len(per_frame),
     }
+
+
+def score_still(image, reference_photos, identity=None):
+    """Likeness of the best-matching face in one generated image to the reference photos."""
+    identity = identity or Identity()
+    with _landmarker(num_faces=4) as lm, _pose_landmarker(3) as pose_lm:
+        refs = []
+        for p in reference_photos:
+            rgb = read_rgb(p)
+            found = detect(rgb, lm=lm, pose_lm=pose_lm)
+            if found:
+                refs.append(identity.embed(rgb, found[0]["pts"]))
+        if not refs:
+            raise FaceError("На фото не найдено лицо для сравнения.")
+        rgb = read_rgb(image)
+        found = detect(rgb, lm=lm, pose_lm=pose_lm)
+    best = max((max(identity.cosine(identity.embed(rgb, f["pts"]), r) for r in refs) for f in found), default=None)
+    if best is None:
+        return {"score": 0, "similarity": None, "face": False}
+    return {"score": score_value(best), "similarity": round(best, 3), "face": True}

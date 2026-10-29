@@ -9,6 +9,7 @@ the photos and, for some templates, one line of text.
 TEMPLATES = [
     {
         "id": "hero",
+        "photo_subtitle": "Вы вместо человека на фото. Поза, фон и свет как в оригинале.",
         "title": "Я в главной роли",
         "subtitle": "Вы вместо человека в кадре. Движение, фон и звук как в оригинале.",
         "mode": "swap",
@@ -17,6 +18,7 @@ TEMPLATES = [
     },
     {
         "id": "object",
+        "photo_subtitle": "Предмет на фото меняется на ваш. Люди и фон остаются.",
         "title": "Замена объекта",
         "subtitle": "Товар, предмет или машина в кадре меняется на ваш. Люди и движение остаются.",
         "mode": "object",
@@ -28,6 +30,7 @@ TEMPLATES = [
     },
     {
         "id": "outfit",
+        "photo_subtitle": "Вы на фото, но в другой одежде — опишите наряд.",
         "title": "Новый образ",
         "subtitle": "Вы в кадре, но в другой одежде — опишите наряд.",
         "mode": "swap",
@@ -38,6 +41,7 @@ TEMPLATES = [
     },
     {
         "id": "location",
+        "photo_subtitle": "Та же поза и ракурс, но в другом месте — опишите где.",
         "title": "Новая локация",
         "subtitle": "То же движение и камера, но в другом месте — опишите где.",
         "mode": "motion",
@@ -47,6 +51,7 @@ TEMPLATES = [
     },
     {
         "id": "anime",
+        "photo_subtitle": "Фото в стиле рисованного аниме, вы — герой.",
         "title": "Аниме 90-х",
         "subtitle": "Всё видео в стиле рисованного аниме, вы — его герой.",
         "mode": "swap",
@@ -56,6 +61,7 @@ TEMPLATES = [
     },
     {
         "id": "clay",
+        "photo_subtitle": "Вы и весь кадр — сцена из пластилина.",
         "title": "Пластилин",
         "subtitle": "Стоп-моушен из пластилина: вы и весь мир вылеплены.",
         "mode": "swap",
@@ -65,6 +71,7 @@ TEMPLATES = [
     },
     {
         "id": "toon3d",
+        "photo_subtitle": "Как кадр из полнометражного 3D-мультфильма.",
         "title": "3D-мультфильм",
         "subtitle": "Как кадр из полнометражного 3D-мультфильма.",
         "mode": "swap",
@@ -74,6 +81,7 @@ TEMPLATES = [
     },
     {
         "id": "cinema",
+        "photo_subtitle": "Киношный кадр: цветокор, анаморф, зерно плёнки.",
         "title": "Блокбастер",
         "subtitle": "Киношная картинка: цветокор, анаморф, зерно плёнки.",
         "mode": "swap",
@@ -84,6 +92,7 @@ TEMPLATES = [
     },
     {
         "id": "cyberpunk",
+        "photo_subtitle": "Ночной неоновый город, дождь и отражения.",
         "title": "Неон-киберпанк",
         "subtitle": "Ночной город будущего в неоне, дождь и отражения.",
         "mode": "motion",
@@ -95,6 +104,7 @@ TEMPLATES = [
     },
     {
         "id": "live",
+        "photo_subtitle": "Рисунок или аниме становится живым фото с вами.",
         "title": "Мульт → живое",
         "subtitle": "Мультяшное или аниме-видео становится живой съёмкой с вами.",
         "mode": "swap",
@@ -111,7 +121,7 @@ BY_ID = {t["id"]: t for t in TEMPLATES}
 
 def public():
     """What the UI needs (no prompt internals)."""
-    keys = ("id", "title", "subtitle", "mode", "photos", "input", "glyph", "colors")
+    keys = ("id", "title", "subtitle", "photo_subtitle", "mode", "photos", "input", "glyph", "colors")
     return [{k: t[k] for k in keys if k in t} for t in TEMPLATES]
 
 

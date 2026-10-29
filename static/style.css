@@ -219,3 +219,26 @@ dialog h2 { font-size: 18px; }
   .gallery { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
   .block { padding: 16px; }
 }
+
+/* ---------- photo mode ---------- */
+.app.mode-photo .video-only, .app.mode-video .photo-only { display: none !important; }
+.modes { display: flex; gap: 4px; margin: 14px 20px 0; padding: 4px; background: var(--raised); border: 1px solid var(--line); border-radius: 12px; }
+.modes button { flex: 1; border: 0; background: none; color: var(--muted); font: inherit; font-weight: 600; padding: 8px; border-radius: 9px; cursor: pointer; }
+.modes button.on { background: var(--accent); color: var(--accent-ink); }
+.scene-drop { min-height: 170px; }
+.scene-drop .drop-preview { width: 100%; max-height: 260px; object-fit: contain; background: #000; display: block; }
+.gpt-btn { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; padding: 7px 12px; border-radius: 999px; border: 1px solid var(--accent); background: var(--accent-soft); color: var(--accent); cursor: pointer; white-space: nowrap; }
+.gpt-btn:hover { background: rgba(255, 214, 10, .2); }
+.gpt-btn.on { border-color: var(--line); background: var(--panel); color: var(--text); }
+.gpt-btn.on::after { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--ok); }
+.gpt-line { margin: -4px 0 14px; font-size: 12px; color: var(--muted); padding: 8px 10px; background: var(--raised); border-radius: 8px; border: 1px solid var(--line); }
+.gpt-line b { color: var(--accent); }
+.photo-main { background: #000; border-radius: var(--radius); overflow: hidden; border: 1px solid var(--line); display: grid; place-items: center; }
+.photo-main img { max-width: 100%; max-height: 72vh; display: block; }
+.photo-thumbs { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; margin-top: 12px; }
+.photo-thumbs button { position: relative; padding: 0; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: #000; cursor: pointer; aspect-ratio: 1; }
+.photo-thumbs button.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.photo-thumbs img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.photo-thumbs .pct { position: absolute; top: 6px; right: 6px; font-size: 11px; padding: 2px 7px; border-radius: 999px; background: rgba(0,0,0,.75); }
+.summary-line { margin: 0 0 12px; font-size: 14px; }
+@media (max-width: 800px) { .gpt-btn span { display: none; } .gpt-btn { padding: 8px; } }

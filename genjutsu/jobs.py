@@ -637,6 +637,10 @@ def _has_pending(takes):
 
 def retry(job_id):
     job = load(job_id)
+    if job.get("kind") == "photo":
+        from . import photo
+
+        return photo.retry(job_id)
     hd = job.get("hd") or {}
     if hd.get("status") == "failed":
         if _has_pending(hd.get("takes")):
@@ -687,6 +691,11 @@ def _resumable(takes):
 def resume_all():
     """After a restart: keep polling saved requests, never resubmit."""
     for job in list_jobs():
+        if job.get("kind") == "photo":
+            from . import photo
+
+            photo.resume(job)
+            continue
         takes = job.get("takes") or []
         if job["status"] == "generating":
             if _resumable(takes):

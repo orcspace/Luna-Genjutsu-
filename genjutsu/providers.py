@@ -156,7 +156,7 @@ class Dreamina:
     """
 
     name = "dreamina"
-    label = "Dreamina · Seedance (useapi.net)"
+    label = "Dreamina (useapi.net)"
     api = "https://api.useapi.net/v1/dreamina"
     max_seconds = 15  # reference videos on the Seedance 2.0 family are capped at 15.4 s
     max_images = 9
@@ -178,7 +178,8 @@ class Dreamina:
         token = setting("USEAPI_TOKEN")
         if not token:
             raise ProviderError("Нужен USEAPI_TOKEN (настройки → ключи).")
-        return {"Authorization": f"Bearer {token}", "Accept": "application/json", **extra}
+        # useapi.net's Cloudflare edge rejects default library user agents with HTTP 403 (error 1010).
+        return {"Authorization": f"Bearer {token}", "Accept": "application/json", "User-Agent": "LunaGenjutsu/1.0", **extra}
 
     def ready(self):
         return bool(setting("USEAPI_TOKEN")), "USEAPI_TOKEN"
@@ -238,8 +239,65 @@ class Dreamina:
         }
         for i, img in enumerate(images, start=1):
             payload[f"omni_{i}_imageRef"] = self.upload(img, account)
+        r = self._post_busy(f"{self.api}/videos", payload)
+        ident = r.json().get("jobid")
+        if not ident:
+            raise ProviderError("Dreamina не вернул jobid: " + r.text[:300])
+        return ident, payload
+
+    # ---------- images (POST /images) ----------
+
+    image_models = {
+        "gpt-image-2.5-flare": "GPT Image 2.5 Flare",
+        "gpt-image-2.5-sunburst": "GPT Image 2.5 Sunburst",
+        "nano-banana-pro": "Nano Banana Pro",
+        "seedream-5.0-lite": "Seedream 5.0 Lite",
+        "seedream-4.6": "Seedream 4.6",
+    }
+    image_ratios = ["1:1", "3:4", "4:3", "9:16", "16:9", "2:3", "3:2", "21:9"]
+    max_image_refs = 6
+
+    def submit_image(self, prompt, refs, model, width, height, hd=False, strength=None):
+        """refs: local image paths, uploaded as imageRef_1..6 in order."""
+        if model not in self.image_models:
+            raise ProviderError(f"Неизвестная модель картинок «{model}».")
+        account = self.account()
+        allowed = ["1:1", "2:3", "3:2"] if model == "gpt-image-2" else self.image_ratios
+        ratios = {r: int(r.split(":")[0]) / int(r.split(":")[1]) for r in allowed}
+        payload = {"account": account, "model": model, "prompt": prompt[:5000],
+                   "ratio": min(ratios, key=lambda r: abs(ratios[r] - width / height))}
+        if model.startswith("seedream"):
+            payload["resolution"] = "4k" if hd else "2k"
+        if strength is not None:
+            payload["imageStrength"] = strength
+        for i, path in enumerate(refs[: self.max_image_refs], start=1):
+            payload[f"imageRef_{i}"] = self.upload(path, account)
+        r = self._post_busy(f"{self.api}/images", payload)
+        ident = r.json().get("jobid")
+        if not ident:
+            raise ProviderError("Dreamina не вернул jobid: " + r.text[:300])
+        return ident, payload
+
+    def poll_image(self, jobid):
+        r = requests.get(f"{self.api}/images/{quote(jobid, safe='')}", headers=self._headers(), timeout=30)
+        r.raise_for_status()
+        j = r.json()
+        state = j.get("status")
+        if state == "completed":
+            images = [im.get("imageUrl") for im in ((j.get("response") or {}).get("images") or []) if im and im.get("imageUrl")]
+            if not images:
+                return {"state": "failed", "error": "Dreamina завершил задачу без картинок.", "raw": j}
+            return {"state": "done", "urls": images, "raw": j}
+        if state == "failed":
+            detail = j.get("error") or "failed"
+            if j.get("errorDetails"):
+                detail += f" — {j['errorDetails']}"
+            return {"state": "failed", "error": self.explain(detail), "raw": j}
+        return {"state": "pending", "raw": j}
+
+    def _post_busy(self, url, payload):
         for attempt in range(self.busy_retries + 1):
-            r = requests.post(f"{self.api}/videos", headers=self._headers(**{"Content-Type": "application/json"}), json=payload, timeout=90)
+            r = requests.post(url, headers=self._headers(**{"Content-Type": "application/json"}), json=payload, timeout=90)
             # 429 = every account is at capacity; nothing was queued or charged, so waiting is safe.
             if r.status_code != 429 or attempt == self.busy_retries:
                 break
@@ -252,10 +310,7 @@ class Dreamina:
             raise ProviderError("Dreamina: все аккаунты заняты другими генерациями. Попробуйте позже.")
         if not r.ok:
             raise ProviderError(self.explain(f"Dreamina отклонил запрос ({r.status_code}): {r.text[:500]}"))
-        ident = r.json().get("jobid")
-        if not ident:
-            raise ProviderError("Dreamina не вернул jobid: " + r.text[:300])
-        return ident, payload
+        return r
 
     def poll(self, request_id):
         # The job id goes into the path as-is, exactly like useapi.net's own example script.
