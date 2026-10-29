@@ -50,12 +50,13 @@
       <section class="block photo-only">
         <div class="block-head"><h2>Фото-референс</h2><span class="muted small">куда поставить вас</span></div>
         <label class="drop scene-drop" id="sceneDrop">
-          <input type="file" name="scene" accept="image/*" hidden>
+          <input type="file" name="scene" accept="image/*,.heic,.heif" multiple hidden>
           <div class="drop-empty">
             <svg viewBox="0 0 24 24" width="26" height="26"><path fill="currentColor" d="M21 5v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2zM8.5 13.5 5 18h14l-4.5-6-3.5 4.5z"/></svg>
-            <b>Перетащите фото</b><span>кадр с человеком, позу и место которого нужно повторить</span>
+            <b>Перетащите фото</b><span>кадр с человеком, позу и место которого нужно повторить · можно несколько — будет фотосессия</span>
           </div>
           <img class="drop-preview" alt="" hidden>
+          <div class="drop-meta" hidden></div>
         </label>
       </section>
 
@@ -76,7 +77,7 @@
         <div class="block-head"><h2 id="photosTitle">Ваши фото</h2><span class="muted small" id="photosHint">лицо и полный рост — лучше оба</span></div>
         <div class="photos" id="objectPhotos" hidden>
           <label class="drop photo-drop" data-role="object">
-            <input type="file" name="object" accept="image/*" hidden>
+            <input type="file" name="object" accept="image/*,.heic,.heif" hidden>
             <div class="drop-empty"><svg viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M12 2 3 7v10l9 5 9-5V7l-9-5zm0 2.3L18.7 8 12 11.7 5.3 8 12 4.3zM5 9.7l6 3.3v6.7l-6-3.3V9.7zm8 10v-6.7l6-3.3v6.7l-6 3.3z"/></svg><b>Фото объекта</b><span>целиком, на простом фоне</span></div>
             <img class="drop-preview" alt="" hidden>
             <div class="photo-check" hidden></div>
@@ -84,20 +85,20 @@
         </div>
         <div class="photos" id="personPhotos">
           <label class="drop photo-drop" data-role="face">
-            <input type="file" name="face" accept="image/*" hidden>
+            <input type="file" name="face" accept="image/*,.heic,.heif" hidden>
             <div class="drop-empty"><svg viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M12 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10zm0 2c-4 0-8 2-8 5v1h16v-1c0-3-4-5-8-5z"/></svg><b>Лицо крупно</b><span>анфас, ровный свет</span></div>
             <img class="drop-preview" alt="" hidden>
             <div class="photo-check" hidden></div>
           </label>
           <label class="drop photo-drop" data-role="body">
-            <input type="file" name="body" accept="image/*" hidden>
+            <input type="file" name="body" accept="image/*,.heic,.heif" hidden>
             <div class="drop-empty"><svg viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M12 2a2.5 2.5 0 1 1 0 5 2.5 2.5 0 0 1 0-5zM9 8h6l1 7h-2l-.5 7h-3L10 15H8z"/></svg><b>В полный рост</b><span>с головы до ног</span></div>
             <img class="drop-preview" alt="" hidden>
             <div class="photo-check" hidden></div>
           </label>
         </div>
         <label class="extras" id="extrasPick">
-          <input type="file" name="extras" accept="image/*" multiple hidden>
+          <input type="file" name="extras" accept="image/*,.heic,.heif" multiple hidden>
           <span id="extrasLabel">+ Доп. ракурсы (сбоку, сзади)</span>
         </label>
       </section>
@@ -256,7 +257,8 @@
     <div class="job" id="jobCard" hidden>
       <div class="job-head">
         <button class="ghost small" id="backBtn" type="button">← Все работы</button>
-        <span class="job-id" id="jobId"></span>
+        <span class="job-head-right"><span class="job-id" id="jobId"></span>
+          <button class="ghost small danger" id="deleteBtn" type="button" title="Удалить работу">Удалить</button></span>
       </div>
 
       <div class="stage">
@@ -291,6 +293,7 @@
         </div>
         <div class="row">
           <a class="primary" id="photoDownload" download>Скачать</a>
+          <a class="secondary" id="downloadAll" download hidden>Скачать все</a>
           <button class="secondary" id="moreBtn" type="button">Ещё вариант</button>
           <button class="secondary gpt-act" id="refineBtn" type="button" title="GPT сравнит этот вариант с вашими фото и исправит промпт">Улучшить с GPT</button>
           <button class="ghost" id="editPromptBtn" type="button">Изменить промпт</button>

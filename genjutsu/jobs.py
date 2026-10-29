@@ -28,7 +28,8 @@ MAX_TAKES = 3
 POLL_EVERY = 8
 POLL_LIMIT = 3 * 3600
 
-_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="job")
+# Jobs spend most of their time waiting on the provider, so a few can run side by side.
+_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="job")
 _locks = {}
 _cancel = set()
 

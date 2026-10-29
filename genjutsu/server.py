@@ -1,12 +1,14 @@
 """Local UI and JSON API. Binds to 127.0.0.1 only; this is a single-user app."""
+import io
 import re
 import tempfile
+import zipfile
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import List, Optional
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from . import chatgpt, faces, hardware, hosting, jobs, media, photo, photos, providers, templates
@@ -24,6 +26,25 @@ async def lifespan(app):
 
 
 app = FastAPI(title="Luna Genjutsu", lifespan=lifespan)
+
+LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1", "testserver"}
+
+
+@app.middleware("http")
+async def local_guard(request: Request, call_next):
+    """Keep other websites out.
+
+    Any page in the browser can send a "simple" cross-site POST (including a multipart upload)
+    to 127.0.0.1 and spend the user's credits. Requiring a custom header forces a CORS preflight,
+    which this app never answers, so such requests never arrive. The Host check stops DNS
+    rebinding, where a foreign domain resolves to 127.0.0.1 to read the API."""
+    host = (request.headers.get("host") or "").strip()
+    host = host[1:host.index("]")] if host.startswith("[") else host.rsplit(":", 1)[0]
+    if host not in LOCAL_HOSTS:
+        return JSONResponse({"detail": "Открывайте приложение по адресу 127.0.0.1."}, status_code=403)
+    if request.method not in ("GET", "HEAD", "OPTIONS") and request.headers.get("x-genjutsu") != "1":
+        return JSONResponse({"detail": "Запрос отклонён: он пришёл не из приложения."}, status_code=403)
+    return await call_next(request)
 
 
 @app.exception_handler(ValueError)
@@ -193,6 +214,23 @@ def more_variants(job_id: str, request: Request, count: int = 1):
     _local_only(request)
     photo.more(_id(job_id), count)
     return jobs.load(job_id)
+
+
+@app.get("/api/jobs/{job_id}/download-all")
+def download_all(job_id: str):
+    """Every variant of a photo job in one zip."""
+    job = jobs.load(_id(job_id))
+    names = [im["file"] for im in job.get("images") or [] if SERVABLE.match(im["file"])]
+    if not names:
+        raise HTTPException(404)
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_STORED) as z:
+        for i, name in enumerate(names, start=1):
+            path = jobs.folder(job_id) / name
+            if path.exists():
+                z.write(path, f"genjutsu-{job_id}-{i}{path.suffix}")
+    return Response(buf.getvalue(), media_type="application/zip",
+                    headers={"Content-Disposition": f'attachment; filename="genjutsu-{job_id}.zip"'})
 
 
 @app.post("/api/jobs/{job_id}/refine")

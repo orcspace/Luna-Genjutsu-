@@ -30,7 +30,7 @@ def client(runs, monkeypatch, tmp_path):
     monkeypatch.setattr(providers.Dreamina, "submit_image", submit_image)
     monkeypatch.setattr(providers.Dreamina, "poll_image", poll_image)
     from genjutsu.server import app
-    with TestClient(app) as c:
+    with TestClient(app, headers={"X-Genjutsu": "1"}) as c:
         c.state = state
         yield c
 

@@ -16,7 +16,7 @@ def client(runs, monkeypatch):
     # Stand-in for MediaPipe (its model is downloaded on first real use).
     monkeypatch.setattr(masking, "segment_local", lambda video, folder, w, h, status: box_masks(folder, round(media.probe(video)["duration"] * 24), w, h))
     from genjutsu.server import app
-    with TestClient(app) as c:
+    with TestClient(app, headers={"X-Genjutsu": "1"}) as c:
         yield c
 
 

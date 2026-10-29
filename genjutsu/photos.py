@@ -1,6 +1,13 @@
 """Reference photos: upright, RGB, sensible size, plus a character sheet for previews."""
 from PIL import Image, ImageOps
 
+try:  # iPhone photos (HEIC/HEIF)
+    from pillow_heif import register_heif_opener
+
+    register_heif_opener()
+except ImportError:
+    pass
+
 MAX_SIDE = 2048
 MIN_SIDE = 256
 
@@ -14,7 +21,7 @@ def prepare(src, dst):
         img = Image.open(src)
         img = ImageOps.exif_transpose(img)
     except Exception:
-        raise PhotoError("Не удалось открыть фото. Подойдут JPG, PNG или WebP.")
+        raise PhotoError("Не удалось открыть фото. Подойдут JPG, PNG, WebP или HEIC.")
     if min(img.size) < MIN_SIDE:
         raise PhotoError(f"Фото слишком маленькое ({img.size[0]}×{img.size[1]}). Нужно хотя бы {MIN_SIDE} px по короткой стороне.")
     if img.mode in ("RGBA", "LA", "P"):

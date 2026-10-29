@@ -14,10 +14,18 @@ const STATUS_TEXT = { queued: "В очереди", running: "Подготовк�
 const SHORT_MODEL = { "seedance-2.5": "Seedance 2.5", "seedance-2.0": "Seedance 2.0", "seedance-2.0-fast": "2.0 Fast", "seedance-2.0-mini": "2.0 Mini" };
 
 async function api(path, opts = {}) {
-  const res = await fetch(path, opts);
+  // The server refuses changes without this header, so other websites can't drive the app.
+  const res = await fetch(path, { ...opts, headers: { "X-Genjutsu": "1", ...(opts.headers || {}) } });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(typeof data.detail === "string" ? data.detail : JSON.stringify(data.detail || data));
   return data;
+}
+
+// Russian plural: plural(3, "сцена", "сцены", "сцен") → "3 сцены".
+function plural(n, one, few, many) {
+  const m10 = n % 10, m100 = n % 100;
+  const word = m10 === 1 && m100 !== 11 ? one : m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14) ? few : many;
+  return `${n} ${word}`;
 }
 
 function escapeHtml(s) {
@@ -227,7 +235,9 @@ function updateSummary() {
   if (mode === "photo") {
     const n = +f.count.value;
     const parts = [(config.image_models || {})[f.image_model.value] || "", f.pquality.value === "4k" ? "4K" : "стандарт",
-      n === 1 ? "1 вариант" : `${n} варианта`, config.chatgpt && config.chatgpt.connected ? "промпт: GPT" : "промпт: шаблон"];
+      plural(n, "вариант", "варианта", "вариантов"), config.chatgpt && config.chatgpt.connected ? "промпт: GPT" : "промпт: шаблон"];
+    const scenes = f.scene.files.length;
+    if (scenes > 1) parts.unshift(plural(scenes, "сцена", "сцены", "сцен"));
     $("#summary").textContent = parts.filter(Boolean).join(" · ");
     return;
   }
@@ -236,7 +246,7 @@ function updateSummary() {
   if (p) parts.push(!$("#modelField").hidden ? SHORT_MODEL[f.model.value] || f.model.value : p.label.split("·")[0].trim());
   parts.push(f.quality.value === "hd" ? "1080p" : "720p");
   const takes = +f.takes.value;
-  parts.push(takes === 1 ? "1 дубль" : `${takes} дубля`);
+  parts.push(plural(takes, "дубль", "дубля", "дублей"));
   if (videoSeconds) parts.push(`${Math.min(videoSeconds, 30).toFixed(0)} с видео`);
   $("#summary").textContent = parts.join(" · ") + (takes > 1 ? " — оплачивается каждый дубль" : "");
 }
@@ -280,7 +290,7 @@ setupDrop($("#videoDrop"), file => {
   };
 });
 
-setupDrop($("#sceneDrop"), file => {
+setupDrop($("#sceneDrop"), (file, files) => {
   const drop = $("#sceneDrop");
   const img = $(".drop-preview", drop);
   if (img.src) URL.revokeObjectURL(img.src);
@@ -288,6 +298,10 @@ setupDrop($("#sceneDrop"), file => {
   img.hidden = false;
   $(".drop-empty", drop).hidden = true;
   drop.classList.add("filled");
+  const meta = $(".drop-meta", drop);
+  meta.hidden = files.length < 2;
+  meta.textContent = `Фотосессия: ${plural(files.length, "сцена", "сцены", "сцен")} — по работе на каждую`;
+  updateSummary();
 });
 
 $$(".photo-drop").forEach(drop => setupDrop(drop, file => {
@@ -429,14 +443,24 @@ $("#form").addEventListener("submit", async e => {
   }
   const btn = $("#submitBtn");
   btn.disabled = true;
-  hint("Загружаю файлы…");
+  // A photo shoot: one job per scene photo, the same references for all of them.
+  const scenes = mode === "photo" ? [...form.scene.files] : [null];
+  const made = [];
   try {
-    const job = await api(endpoint, { method: "POST", body: data });
-    hint("");
-    openJob(job.id);
+    for (const [i, scene] of scenes.entries()) {
+      hint(scenes.length > 1 ? `Загружаю сцену ${i + 1} из ${scenes.length}…` : "Загружаю файлы…");
+      if (scene) data.set("scene", scene, scene.name);
+      made.push(await api(endpoint, { method: "POST", body: data }));
+    }
+    hint(scenes.length > 1 ? `Фотосессия запущена: ${plural(made.length, "работа", "работы", "работ")}.` : "");
+    if (made.length === 1) openJob(made[0].id);
+    else closeJob();
+    gallerySignature = "";
     loadHistory();
   } catch (err) {
-    hint(err.message, true);
+    hint((made.length ? `Запущено ${made.length} из ${scenes.length}. ` : "") + err.message, true);
+    gallerySignature = "";
+    loadHistory();
   } finally {
     btn.disabled = false;
   }
@@ -464,6 +488,16 @@ function closeJob() {
   $$(".card").forEach(x => x.classList.remove("active"));
 }
 $("#backBtn").onclick = closeJob;
+
+$("#deleteBtn").onclick = async () => {
+  if (!currentJob || !confirm("Удалить эту работу вместе со всеми файлами? Это нельзя отменить.")) return;
+  try {
+    await api(`/api/jobs/${currentJob}`, { method: "DELETE" });
+    closeJob();
+    gallerySignature = "";
+    loadHistory();
+  } catch (e) { alert(e.message); }
+};
 
 const download = (job, name) => `/files/${job.id}/${name}?download=1`;
 
@@ -517,6 +551,7 @@ function render(job) {
   $("#reviewBox").hidden = job.status !== "review";
   $("#retryBtn").hidden = !(["failed", "canceled"].includes(job.status) || (job.hd && job.hd.status === "failed"));
   $("#stopBtn").hidden = !["queued", "running"].includes(job.status);
+  $("#deleteBtn").disabled = ["queued", "running", "generating"].includes(job.status) || (job.hd && job.hd.status === "running");
 
   $("#previewFig").hidden = !job.guide;
   // Only touch src when the file really changed, so images don't reload on every poll.
@@ -562,6 +597,8 @@ function renderPhoto(job) {
   const shown = images.find(im => im.file === photoShown);
   setSrc($("#photoMain"), `/files/${job.id}/${shown.file}`);
   $("#photoDownload").href = `/files/${job.id}/${shown.file}?download=1`;
+  $("#downloadAll").hidden = images.length < 2;
+  $("#downloadAll").href = `/api/jobs/${job.id}/download-all`;
   const sc = shown.score;
   $("#photoScore").hidden = !(sc && sc.face !== undefined);
   if (sc) $("#photoScore").innerHTML = sc.face === false ? "Лицо на этом варианте не найдено" : `Сходство лица с вашими фото: <b class="pct ${pctClass(sc.score)}">${sc.score}%</b>`;

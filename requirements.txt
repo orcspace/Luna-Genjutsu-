@@ -7,3 +7,5 @@ opencv-python-headless>=4.10
 pillow>=11.0
 # ffmpeg without a system install (only used when ffmpeg is not on PATH)
 imageio-ffmpeg>=0.5
+# iPhone photos (HEIC)
+pillow-heif>=0.18

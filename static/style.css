@@ -247,3 +247,7 @@ dialog h2 { font-size: 18px; }
 .prompt-edit textarea { width: 100%; background: var(--raised); color: var(--text); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px 12px; font: 13px/1.5 ui-monospace, monospace; resize: vertical; }
 .prompt-edit textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .gpt-act { border-color: rgba(255, 214, 10, .45); color: var(--accent); }
+
+.job-head-right { display: flex; align-items: center; gap: 12px; }
+.danger:hover { color: var(--err); border-color: #5a2328; }
+button:disabled { opacity: .45; cursor: not-allowed; }
