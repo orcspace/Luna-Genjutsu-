@@ -10,7 +10,7 @@ BIN = ROOT / "bin"
 MODELS = ROOT / "models"
 
 DEFAULTS = {
-    "PROVIDER": "enhancor",  # enhancor | dreamina | byteplus | mock
+    "PROVIDER": "dreamina",  # dreamina | enhancor | byteplus | mock
     "ENHANCOR_API_KEY": "",
     "ENHANCOR_BASE_URL": "https://apireq.enhancor.ai/api/seedance2.5/v1",
     "USEAPI_TOKEN": "",

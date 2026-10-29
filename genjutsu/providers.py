@@ -251,7 +251,7 @@ class Dreamina:
         if r.status_code == 429:
             raise ProviderError("Dreamina: все аккаунты заняты другими генерациями. Попробуйте позже.")
         if not r.ok:
-            raise ProviderError(f"Dreamina отклонил запрос ({r.status_code}): {r.text[:500]}")
+            raise ProviderError(self.explain(f"Dreamina отклонил запрос ({r.status_code}): {r.text[:500]}"))
         ident = r.json().get("jobid")
         if not ident:
             raise ProviderError("Dreamina не вернул jobid: " + r.text[:300])
@@ -273,8 +273,17 @@ class Dreamina:
             detail = j.get("error") or "failed"
             if j.get("errorDetails"):
                 detail += f" — {j['errorDetails']}"
-            return {"state": "failed", "error": detail, "raw": j}
+            return {"state": "failed", "error": self.explain(detail), "raw": j}
         return {"state": "pending", "raw": j}
+
+    @staticmethod
+    def explain(detail):
+        """Dreamina's moderation errors in plain words, with what to do about them."""
+        text = str(detail)
+        if any(k in text.lower() for k in ("moderat", "real human", "real face", "sensitive", "violat", "policy")):
+            return (f"{text}\nDreamina отклонил материалы модерацией. Seedance 2.0 / Fast / Mini не принимают фото реальных лиц — "
+                    "выберите Seedance 2.5 (та же подписка). Если отказ и на 2.5 — проверьте, нет ли на видео или фото чужих лиц, текста или запрещённого контента.")
+        return text
 
 
 class Mock:
@@ -315,7 +324,7 @@ class Mock:
         return {"state": "done", "url": out.as_uri()}
 
 
-PROVIDERS = {p.name: p for p in (Enhancor(), Dreamina(), BytePlus(), Mock())}
+PROVIDERS = {p.name: p for p in (Dreamina(), Enhancor(), BytePlus(), Mock())}
 
 
 def get(name=None):

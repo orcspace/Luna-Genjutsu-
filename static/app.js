@@ -4,8 +4,12 @@ const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 let config = null;
 let currentJob = null;
 let jobTimer = null;
+let templateList = [];
+let videoSeconds = null;
+let gallerySignature = "";
 const STAGES = ["normalize", "mask", "upload", "generate", "finish", "done"];
 const STATUS_TEXT = { queued: "В очереди", running: "Подготовка", review: "Ждёт проверки", generating: "Генерация", done: "Готово", failed: "Ошибка", canceled: "Отменено" };
+const SHORT_MODEL = { "seedance-2.5": "Seedance 2.5", "seedance-2.0": "Seedance 2.0", "seedance-2.0-fast": "2.0 Fast", "seedance-2.0-mini": "2.0 Mini" };
 
 async function api(path, opts = {}) {
   const res = await fetch(path, opts);
@@ -14,23 +18,59 @@ async function api(path, opts = {}) {
   return data;
 }
 
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+}
+
+function hint(text, err = false) {
+  const h = $("#formHint");
+  h.textContent = text;
+  h.className = "hint" + (err ? " err" : "");
+}
+
+// ---------- views: create / gallery / job ----------
+// Desktop shows the form and the workspace side by side; on a phone the tabs switch between them.
+
+function setView(view) {
+  const app = $(".app");
+  app.classList.toggle("view-create", view === "create");
+  $("#tabCreate").classList.toggle("on", view === "create");
+  $("#tabGallery").classList.toggle("on", view !== "create");
+  $("#galleryCard").hidden = view === "job";
+  $("#jobCard").hidden = view !== "job";
+}
+
+const isPhone = () => window.matchMedia("(max-width: 800px)").matches;
+
+$("#tabCreate").onclick = () => {
+  if (isPhone()) setView("create");
+  else {
+    // The form is always visible on a wide screen: just bring it to the top.
+    $("#tabCreate").classList.add("on");
+    $("#tabGallery").classList.remove("on");
+  }
+  $("#createCard").scrollTo({ top: 0, behavior: "smooth" });
+  window.scrollTo({ top: 0, behavior: "smooth" });
+};
+$("#tabGallery").onclick = () => closeJob();
+
 // ---------- config & settings ----------
 
 async function loadConfig() {
   config = await api("/api/config");
   const sel = $("#providerSelect");
-  sel.innerHTML = config.providers.map(p => `<option value="${p.name}">${p.label}${p.ready ? "" : " — нет ключа"}</option>`).join("");
+  sel.innerHTML = config.providers.map(p => `<option value="${p.name}">${escapeHtml(p.label)}${p.ready ? "" : " — нет ключа"}</option>`).join("");
   sel.value = config.provider;
   syncModels();
   const p = config.providers.find(x => x.name === config.provider);
   const badge = $("#providerBadge");
   badge.textContent = p ? p.label + (p.ready ? "" : " · нет ключа") : "";
   badge.className = "badge " + (p && p.ready ? "ok" : "bad");
-  const localOpt = $('select[name=masking] option[value=local]');
-  localOpt.disabled = !config.local_masks;
+  $('select[name=masking] option[value=local]').disabled = !config.local_masks;
   $('select[name=masking] option[value=cloud]').disabled = !config.replicate;
   $('select[name=audio] option[value=vocals]').disabled = !config.replicate;
   if (!config.ffmpeg) hint("ffmpeg не найден — установите его, без него обработка видео невозможна.", true);
+  else if (p && !p.ready) hint(`Вставьте ключ для «${p.label}» в настройках (шестерёнка справа вверху).`);
   const hw = config.hardware || {};
   $("#hwLine").textContent = [
     hw.gpu ? `Видеокарта: ${hw.gpu.name}${hw.gpu.vram_gb ? ` ${hw.gpu.vram_gb} ГБ` : ""}` : "Видеокарта NVIDIA не найдена",
@@ -38,19 +78,43 @@ async function loadConfig() {
     hw.cpu_threads ? `потоков CPU: ${hw.cpu_threads}` : "",
     hw.ram_gb ? `ОЗУ: ${hw.ram_gb} ГБ` : "",
   ].filter(Boolean).join(" · ");
+  updateSummary();
 }
 
-// Model choice for providers that offer several (Dreamina).
+// Model pills for providers that offer several (Dreamina).
 function syncModels() {
   const p = config.providers.find(x => x.name === $("#providerSelect").value);
   const models = (p && p.models) || {};
   const names = Object.keys(models);
   $("#modelField").hidden = !names.length;
   const ms = $("#modelSelect");
-  ms.innerHTML = names.map(n => `<option value="${n}">${models[n]}</option>`).join("");
-  if (names.includes(config.settings.DREAMINA_MODEL)) ms.value = config.settings.DREAMINA_MODEL;
+  const keep = names.includes(ms.value) ? ms.value : names.includes(config.settings.DREAMINA_MODEL) ? config.settings.DREAMINA_MODEL : names[0];
+  ms.innerHTML = names.map(n => `<option value="${n}">${escapeHtml(models[n])}</option>`).join("");
+  if (keep) ms.value = keep;
+  $("#modelPills").innerHTML = names.map(n => `<button type="button" data-value="${n}" title="${escapeHtml(models[n])}" class="${n === keep ? "on" : ""}">${escapeHtml(SHORT_MODEL[n] || n)}</button>`).join("");
+  $$("#modelPills button").forEach(b => b.onclick = () => {
+    ms.value = b.dataset.value;
+    $$("#modelPills button").forEach(x => x.classList.toggle("on", x === b));
+    modelWarning();
+    updateSummary();
+  });
+  modelWarning();
 }
-$("#providerSelect").addEventListener("change", syncModels);
+$("#providerSelect").addEventListener("change", () => { syncModels(); updateSummary(); });
+
+function currentTemplate() {
+  return templateList.find(x => x.id === $("#form").template.value) || {};
+}
+
+// Dreamina's Seedance 2.0 family rejects photos of real faces; 2.5 on the same subscription accepts them.
+function modelWarning() {
+  const warn = $("#modelWarn");
+  const model = $("#modelSelect").value;
+  const withFace = currentTemplate().photos !== "object";
+  const show = !$("#modelField").hidden && $("#providerSelect").value === "dreamina" && model && model !== "seedance-2.5" && withFace;
+  warn.hidden = !show;
+  if (show) warn.textContent = "Seedance 2.0 в Dreamina отклоняет фото реальных лиц. Для своего лица выберите Seedance 2.5 — та же подписка. 2.0 подходит для замены объекта.";
+}
 
 $("#openSettings").onclick = () => {
   const f = $("#settingsForm");
@@ -67,13 +131,30 @@ $("#settings").addEventListener("close", async () => {
   } catch (e) { hint(e.message, true); }
 });
 
-// ---------- form ----------
+// ---------- pills bound to hidden selects ----------
 
-function hint(text, err = false) {
-  const h = $("#formHint");
-  h.textContent = text;
-  h.className = "hint" + (err ? " err" : "");
+$$(".pills[data-for]").forEach(group => group.addEventListener("click", e => {
+  const b = e.target.closest("button");
+  if (!b) return;
+  $(`select[name=${group.dataset.for}]`).value = b.dataset.value;
+  $$("button", group).forEach(x => x.classList.toggle("on", x === b));
+  updateSummary();
+}));
+
+function updateSummary() {
+  if (!config) return;
+  const f = $("#form");
+  const p = config.providers.find(x => x.name === f.provider.value);
+  const parts = [];
+  if (p) parts.push(!$("#modelField").hidden ? SHORT_MODEL[f.model.value] || f.model.value : p.label.split("·")[0].trim());
+  parts.push(f.quality.value === "hd" ? "1080p" : "720p");
+  const takes = +f.takes.value;
+  parts.push(takes === 1 ? "1 дубль" : `${takes} дубля`);
+  if (videoSeconds) parts.push(`${Math.min(videoSeconds, 30).toFixed(0)} с видео`);
+  $("#summary").textContent = parts.join(" · ") + (takes > 1 ? " — оплачивается каждый дубль" : "");
 }
+
+// ---------- uploads ----------
 
 function setupDrop(label, onFile) {
   const input = $("input", label);
@@ -94,6 +175,7 @@ setupDrop($("#videoDrop"), file => {
   const drop = $("#videoDrop");
   const video = $(".drop-preview", drop);
   const meta = $(".drop-meta", drop);
+  if (video.src) URL.revokeObjectURL(video.src);
   video.src = URL.createObjectURL(file);
   video.hidden = false;
   $(".drop-empty", drop).hidden = true;
@@ -101,16 +183,19 @@ setupDrop($("#videoDrop"), file => {
   video.onloadedmetadata = () => {
     video.play().catch(() => {});
     const d = video.duration;
+    videoSeconds = isFinite(d) ? d : null;
     meta.hidden = false;
     meta.className = "drop-meta";
     meta.textContent = `${d.toFixed(1)} с · ${video.videoWidth}×${video.videoHeight}`;
-    if (d > 30) { meta.textContent += " · будут взяты первые 30 с"; meta.classList.add("warn"); }
+    if (d > 30) { meta.textContent += " · возьму первые 30 с"; meta.classList.add("warn"); }
     if (d < 4) { meta.textContent += " · коротко, лучше от 4 с"; meta.classList.add("warn"); }
+    updateSummary();
   };
 });
 
 $$(".photo-drop").forEach(drop => setupDrop(drop, file => {
   const img = $(".drop-preview", drop);
+  if (img.src) URL.revokeObjectURL(img.src);
   img.src = URL.createObjectURL(file);
   img.hidden = false;
   $(".drop-empty", drop).hidden = true;
@@ -145,7 +230,7 @@ async function checkPhoto(drop, file) {
 
 $(".extras input").addEventListener("change", e => {
   const n = e.target.files.length;
-  $("#extrasLabel").textContent = n ? `Дополнительных ракурсов: ${n} (нажмите, чтобы заменить)` : "+ Добавить ракурсы (сбоку, сзади) — необязательно";
+  $("#extrasLabel").textContent = n ? `Доп. ракурсов: ${n} (нажмите, чтобы заменить)` : "+ Доп. ракурсы (сбоку, сзади)";
 });
 
 // ---------- templates ----------
@@ -162,20 +247,22 @@ const GLYPHS = {
   bolt: "M13 2 4 14h7l-1 8 9-12h-7z",
   eye: "M12 5C6 5 2 12 2 12s4 7 10 7 10-7 10-7-4-7-10-7zm0 11a4 4 0 1 1 0-8 4 4 0 0 1 0 8z",
 };
-let templateList = [];
+const OUTLINE = ["cube", "film"];
 
 async function loadTemplates() {
   templateList = await api("/api/templates");
   $("#templates").innerHTML = templateList.map(t => `
-    <button type="button" class="tpl" data-id="${t.id}" style="--g: linear-gradient(135deg, ${t.colors[0]}, ${t.colors[1]})" title="${escapeHtml(t.subtitle)}">
-      <svg viewBox="0 0 24 24" width="22" height="22" fill="${["cube", "film"].includes(t.glyph) ? "none" : "currentColor"}" stroke="${["cube", "film"].includes(t.glyph) ? "currentColor" : "none"}" stroke-width="1.6"><path d="${GLYPHS[t.glyph] || GLYPHS.spark}"/></svg>
+    <button type="button" class="tpl" data-id="${t.id}" style="--g: linear-gradient(150deg, ${t.colors[0]}, ${t.colors[1]})" title="${escapeHtml(t.subtitle)}">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="${OUTLINE.includes(t.glyph) ? "none" : "currentColor"}" stroke="${OUTLINE.includes(t.glyph) ? "currentColor" : "none"}" stroke-width="1.6"><path d="${GLYPHS[t.glyph] || GLYPHS.spark}"/></svg>
       <b>${escapeHtml(t.title)}</b><small>${escapeHtml(t.subtitle)}</small>
     </button>`).join("");
   $$(".tpl").forEach(b => b.onclick = () => pickTemplate(b.dataset.id));
-  pickTemplate(sessionTemplate() || "hero");
+  pickTemplate(savedTemplate() || "hero");
+  gallerySignature = "";
+  loadHistory();
 }
 
-function sessionTemplate() {
+function savedTemplate() {
   try { return localStorage.getItem("genjutsu.template"); } catch { return null; }
 }
 
@@ -185,43 +272,46 @@ function pickTemplate(id) {
   $("#form").template.value = t.id;
   try { localStorage.setItem("genjutsu.template", t.id); } catch {}
   $$(".tpl").forEach(b => b.classList.toggle("on", b.dataset.id === t.id));
-  const field = $("#tplField");
-  field.hidden = !t.input;
+  $("#tplSubtitle").textContent = t.title;
+  $("#tplField").hidden = !t.input;
+  $("#tplInput").required = !!(t.input && t.input.required);
   if (t.input) {
     $("#tplLabel").textContent = t.input.label;
     $("#tplInput").placeholder = t.input.placeholder;
-    $("#tplInput").required = !!t.input.required;
-  } else {
-    $("#tplInput").required = false;
   }
   const object = t.photos === "object";
   $("#objectPhotos").hidden = !object;
   $("#personPhotos").hidden = object;
   $("#extrasPick").hidden = object;
   $("#photosTitle").textContent = object ? "Фото объекта" : "Ваши фото";
+  $("#photosHint").textContent = object ? "предмет, которым заменить" : "лицо и полный рост — лучше оба";
   $(".consent span").textContent = object
     ? "У меня есть права на это видео и фото объекта."
     : "На фото я или человек, который дал согласие на такое видео.";
+  modelWarning();
 }
+
+// ---------- submit ----------
 
 $("#form").addEventListener("submit", async e => {
   e.preventDefault();
   const form = e.target;
   if (!form.video.files[0]) return hint("Загрузите видео-референс.", true);
-  const tpl = templateList.find(x => x.id === form.template.value) || {};
+  const tpl = currentTemplate();
   if (tpl.photos === "object") {
     if (!form.object.files[0]) return hint("Загрузите фото объекта.", true);
   } else if (!form.face.files[0] && !form.body.files[0]) return hint("Загрузите хотя бы одно фото: лицо или в полный рост.", true);
   if (tpl.input && tpl.input.required && !form.tpl_input.value.trim()) return hint(`Заполните «${tpl.input.label}».`, true);
+  if (!form.consent.checked) return hint("Отметьте согласие внизу.", true);
   const data = new FormData(form);
   // Only the photos the chosen template uses are sent.
   for (const k of ["face", "body", "object"]) {
     const used = tpl.photos === "object" ? k === "object" : k !== "object";
     if (!form[k].files[0] || !used) data.delete(k);
   }
-  if (tpl.photos === "object") data.delete("extras");
-  if (!form.extras.files.length) data.delete("extras");
+  if (tpl.photos === "object" || !form.extras.files.length) data.delete("extras");
   if ($("#modelField").hidden) data.delete("model");
+  if (!tpl.input) data.delete("tpl_input");
   const btn = $("#submitBtn");
   btn.disabled = true;
   hint("Загружаю файлы…");
@@ -241,32 +331,38 @@ $("#form").addEventListener("submit", async e => {
 
 function openJob(id) {
   currentJob = id;
-  $("#createCard").hidden = true;
-  $("#jobCard").hidden = false;
+  setView("job");
   $("#resultVideo").removeAttribute("src");
   $("#resultVideo").dataset.src = "";
   refreshJob();
   window.scrollTo({ top: 0, behavior: "smooth" });
   history.replaceState(null, "", "#" + id);
+  $$(".card").forEach(x => x.classList.toggle("active", x.dataset.id === id));
 }
 
-$("#backBtn").onclick = () => {
+function closeJob() {
   currentJob = null;
   clearTimeout(jobTimer);
-  $("#jobCard").hidden = true;
-  $("#createCard").hidden = false;
+  $("#resultVideo").pause();
+  setView("gallery");
   history.replaceState(null, "", location.pathname);
-  $$(".hitem").forEach(x => x.classList.remove("active"));
-};
+  $$(".card").forEach(x => x.classList.remove("active"));
+}
+$("#backBtn").onclick = closeJob;
 
-const file = (job, name) => `/files/${job.id}/${name}?download=1`;
+const download = (job, name) => `/files/${job.id}/${name}?download=1`;
 
 async function refreshJob() {
   clearTimeout(jobTimer);
   if (!currentJob) return;
+  const id = currentJob;
   let job;
-  try { job = await api(`/api/jobs/${currentJob}`); } catch (e) { jobTimer = setTimeout(refreshJob, 4000); return; }
-  if (job.id !== currentJob) return;
+  try { job = await api(`/api/jobs/${id}`); } catch (e) {
+    if (/не найдена/.test(e.message)) return closeJob();
+    jobTimer = setTimeout(refreshJob, 4000);
+    return;
+  }
+  if (id !== currentJob) return;
   render(job);
   const hdRunning = job.hd && job.hd.status === "running";
   if (["queued", "running", "generating"].includes(job.status) || hdRunning) jobTimer = setTimeout(refreshJob, 2000);
@@ -276,14 +372,13 @@ function render(job) {
   $("#jobId").textContent = job.id;
   $("#jobStage").textContent = job.stage || STATUS_TEXT[job.status];
   $("#jobPct").textContent = job.status === "done" ? "100%" : `${job.progress || 0}%`;
-  $("#jobBar").style.width = `${job.progress || 0}%`;
+  $("#jobBar").style.width = `${job.status === "done" ? 100 : job.progress || 0}%`;
   $(".bar").classList.toggle("live", ["running", "generating"].includes(job.status));
-  $$(".hitem").forEach(x => x.classList.toggle("active", x.dataset.id === job.id));
 
   const nowIdx = job.status === "done" ? STAGES.length : job.status === "review" ? STAGES.indexOf("upload") : STAGES.indexOf(job.stage_key);
   $$("#jobSteps li").forEach((li, i) => {
     li.classList.toggle("done", i < nowIdx || job.status === "done");
-    li.classList.toggle("now", i === nowIdx && job.status !== "done");
+    li.classList.toggle("now", i === nowIdx && job.status !== "done" && !["failed", "canceled"].includes(job.status));
   });
 
   const err = $("#jobError");
@@ -304,25 +399,19 @@ function render(job) {
   // Only touch src when the file really changed, so images don't reload on every poll.
   if (job.guide) setSrc($("#previewImg"), `/files/${job.id}/preview.jpg?v=${encodeURIComponent(job.guide + (job.qa ? job.qa.mean_area : ""))}`);
   $("#sheetFig").hidden = false;
-  setSrc($("#sheetImg"), `/files/${job.id}/sheet.jpg?v=${(job.refs || []).map(r => r.send).join(",")}`);
+  setSrc($("#sheetImg"), `/files/${job.id}/sheet.jpg?v=${encodeURIComponent((job.refs || []).map(r => r.send).join(","))}`);
 
-  const box = $("#resultBox");
-  box.hidden = !job.result;
+  $("#resultBox").hidden = !job.result;
   renderTakes(job);
   if (job.result) {
     const hdDone = job.hd && job.hd.status === "done";
-    const src = `/files/${job.id}/${hdDone ? job.hd.result : job.result}`;
-    const v = $("#resultVideo");
-    if (v.dataset.src !== src) { v.src = src; v.dataset.src = src; }
-    $("#downloadBtn").href = file(job, job.result);
+    setSrc($("#resultVideo"), `/files/${job.id}/${hdDone ? job.hd.result : job.result}`);
+    $("#downloadBtn").href = download(job, job.result);
     $("#downloadBtn").textContent = job.options.quality === "hd" ? "Скачать 1080p" : "Скачать черновик";
-    const canHd = job.options.quality === "draft" && !job.hd;
-    $("#hdBtn").hidden = !canHd;
+    $("#hdBtn").hidden = !(job.options.quality === "draft" && !job.hd);
     $("#downloadHdBtn").hidden = !hdDone;
-    if (hdDone) $("#downloadHdBtn").href = file(job, job.hd.result);
-    const hh = $("#hdHint");
-    hh.className = "hint";
-    hh.textContent = job.hd ? ({ running: "1080p генерируется…", done: "1080p готово", failed: "1080p: " + (job.hd.error || "ошибка") })[job.hd.status] || "" : "";
+    if (hdDone) $("#downloadHdBtn").href = download(job, job.hd.result);
+    $("#hdHint").textContent = job.hd ? ({ running: "1080p генерируется…", done: "1080p готово", failed: "1080p: " + (job.hd.error || "ошибка") })[job.hd.status] || "" : "";
   }
 
   $("#jobPrompt").textContent = job.prompt || "Промпт появится перед отправкой.";
@@ -359,12 +448,8 @@ function renderTakes(job) {
     const i = +b.dataset.i;
     if (i === job.chosen || job.status !== "done") return;
     if (job.hd && job.hd.status === "done" && job.hd.take !== i && !confirm("Готовое 1080p относится к другому дублю. Выбрать этот?")) return;
-    try { render(await api(`/api/jobs/${job.id}/choose/${i}`, { method: "POST" })); loadHistory(); } catch (e) { alert(e.message); }
+    try { render(await api(`/api/jobs/${job.id}/choose/${i}`, { method: "POST" })); gallerySignature = ""; loadHistory(); } catch (e) { alert(e.message); }
   });
-}
-
-function escapeHtml(s) {
-  return String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 }
 
 async function jobAction(action, confirmText) {
@@ -381,25 +466,48 @@ $("#stopBtn").onclick = () => jobAction("cancel");
 $("#hdBtn").onclick = () => jobAction("hd", "Сделать финальную версию в 1080p? Это отдельная платная генерация.");
 $("#retryBtn").onclick = () => jobAction("retry", "Повторить? Если генерация уже была отправлена и завершилась ошибкой, новая попытка оплачивается заново.");
 
-// ---------- history ----------
+// ---------- gallery ----------
 
 async function loadHistory() {
   let list;
   try { list = await api("/api/jobs"); } catch { return; }
-  const box = $("#historyList");
-  if (!list.length) { box.innerHTML = '<p class="muted">Пока пусто.</p>'; return; }
-  box.innerHTML = list.map(j => {
+  $("#galleryCount").textContent = list.length || "";
+  // Rebuild only when something changed, so a hover preview isn't cut off every 5 s.
+  const signature = JSON.stringify(list.map(j => [j.id, j.status, j.progress, j.chosen, j.hd && j.hd.status]));
+  if (signature === gallerySignature) return;
+  gallerySignature = signature;
+  $("#emptyState").hidden = list.length > 0;
+  const running = list.filter(j => ["queued", "running", "generating"].includes(j.status)).length;
+  $("#galleryHint").textContent = running ? `в работе: ${running}` : list.length ? `всего: ${list.length}` : "";
+  $("#historyList").innerHTML = list.map(j => {
+    const live = ["queued", "running", "generating"].includes(j.status) || (j.hd && j.hd.status === "running");
     const st = j.hd && j.hd.status === "running" ? "1080p…" : STATUS_TEXT[j.status] || j.status;
-    const thumb = j.result ? `<img src="/files/${j.id}/thumb.jpg?c=${j.chosen}" alt="" loading="lazy">` : `<img src="/files/${j.id}/sheet.jpg" alt="" loading="lazy">`;
+    const cls = live ? "run" : j.status;
+    const img = j.result ? `thumb.jpg?c=${j.chosen}` : "sheet.jpg";
     const time = new Date(j.created).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
-    const bar = ["running", "generating", "queued"].includes(j.status) ? `<div class="mini"><i style="width:${j.progress || 0}%"></i></div>` : "";
-    return `<div class="hitem${j.id === currentJob ? " active" : ""}" data-id="${j.id}">${thumb}<div><div class="t">${time} · ${escapeHtml((templateList.find(t => t.id === j.options.template) || {}).title || (j.options.mode === "motion" ? "новая сцена" : "замена"))}</div><div class="s ${j.status}">${st}</div>${bar}</div></div>`;
+    const title = (templateList.find(t => t.id === j.options.template) || {}).title || "Замена";
+    const model = j.options.model ? ` · ${SHORT_MODEL[j.options.model] || j.options.model}` : "";
+    return `<button type="button" class="card${j.id === currentJob ? " active" : ""}" data-id="${j.id}" data-video="${j.result ? `/files/${j.id}/${j.result}` : ""}">
+      <div class="thumb"><img src="/files/${j.id}/${img}" alt="" loading="lazy"><span class="status ${cls}">${st}</span>
+      ${live ? `<div class="mini"><i style="width:${j.progress || 0}%"></i></div>` : ""}</div>
+      <div class="meta"><b>${escapeHtml(title)}</b><span>${time}${escapeHtml(model)}</span></div></button>`;
   }).join("");
-  $$(".hitem", box).forEach(el => el.onclick = () => openJob(el.dataset.id));
+  $$(".card").forEach(card => {
+    card.onclick = () => openJob(card.dataset.id);
+    if (!card.dataset.video) return;
+    // Hover plays the clip, like a preset gallery.
+    card.addEventListener("mouseenter", () => {
+      const v = document.createElement("video");
+      Object.assign(v, { src: card.dataset.video, muted: true, loop: true, playsInline: true, autoplay: true });
+      $(".thumb", card).appendChild(v);
+    });
+    card.addEventListener("mouseleave", () => $$("video", card).forEach(v => v.remove()));
+  });
 }
 
 // ---------- boot ----------
 
+setView(location.hash.length > 1 ? "job" : "create");
 loadConfig().catch(e => hint("Сервер недоступен: " + e.message, true));
 loadTemplates().catch(e => hint("Шаблоны не загрузились: " + e.message, true));
 loadHistory();

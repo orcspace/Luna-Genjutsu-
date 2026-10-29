@@ -4,56 +4,60 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Luna Genjutsu</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='13' fill='%23a78bfa'/><circle cx='21' cy='12' r='11' fill='%230b0b10'/></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='13' fill='%23FFD60A'/><circle cx='21' cy='12' r='11' fill='%230b0b0c'/></svg>">
 <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
 <header class="top">
   <div class="brand">
-    <svg viewBox="0 0 32 32" width="28" height="28" aria-hidden="true"><circle cx="16" cy="16" r="13" fill="var(--accent)"/><circle cx="21" cy="12" r="11" fill="var(--bg)"/></svg>
+    <svg viewBox="0 0 32 32" width="26" height="26" aria-hidden="true"><circle cx="16" cy="16" r="13" fill="var(--accent)"/><circle cx="21" cy="12" r="11" fill="var(--bg)"/></svg>
     <span>Luna <b>Genjutsu</b></span>
   </div>
+  <nav class="tabs" aria-label="Разделы">
+    <button class="tab on" id="tabCreate" type="button">Создать</button>
+    <button class="tab" id="tabGallery" type="button">Мои видео <span class="count" id="galleryCount"></span></button>
+  </nav>
   <div class="top-right">
     <span id="providerBadge" class="badge"></span>
-    <button id="openSettings" class="ghost">Настройки</button>
+    <button id="openSettings" class="icon-btn" type="button" aria-label="Настройки" title="Настройки">
+      <svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M19.4 13a7.5 7.5 0 0 0 0-2l2.1-1.6-2-3.4-2.5 1a7.7 7.7 0 0 0-1.7-1L15 3.3h-4L10.7 6a7.7 7.7 0 0 0-1.7 1l-2.5-1-2 3.4L6.6 11a7.5 7.5 0 0 0 0 2l-2.1 1.6 2 3.4 2.5-1a7.7 7.7 0 0 0 1.7 1l.3 2.7h4l.3-2.7a7.7 7.7 0 0 0 1.7-1l2.5 1 2-3.4zM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z" transform="translate(-1 0)"/></svg>
+    </button>
   </div>
 </header>
 
-<main class="layout">
-  <section class="card create" id="createCard">
-    <h1>Замена персонажа в видео</h1>
-    <p class="sub">Загрузите видео-референс и свои фото. Движение, камера, фон и звук останутся как в оригинале, а человек в кадре станет вами.</p>
-
-    <form id="form">
-      <div class="step">
-        <div class="step-head"><span class="num">★</span>Шаблон</div>
+<main class="app">
+  <!-- ===== left: create panel ===== -->
+  <aside class="panel" id="createCard">
+    <form id="form" autocomplete="off">
+      <section class="block">
+        <div class="block-head"><h2>Шаблон</h2><span class="muted small" id="tplSubtitle"></span></div>
         <input type="hidden" name="template" value="hero">
         <div class="templates" id="templates"></div>
         <label class="field tpl-field" id="tplField" hidden>
           <span id="tplLabel"></span>
-          <input name="tpl_input" id="tplInput" autocomplete="off">
+          <input name="tpl_input" id="tplInput">
         </label>
-      </div>
+      </section>
 
-      <div class="step">
-        <div class="step-head"><span class="num">1</span>Видео-референс</div>
+      <section class="block">
+        <div class="block-head"><h2>Видео-референс</h2><span class="muted small">4–30 с, лучше один человек</span></div>
         <label class="drop video-drop" id="videoDrop">
           <input type="file" name="video" accept="video/*" required hidden>
           <div class="drop-empty">
-            <svg viewBox="0 0 24 24" width="30" height="30"><path fill="currentColor" d="M17 10.5V7a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-3.5l4 4v-11z"/></svg>
-            <b>Перетащите видео сюда</b><span>MP4 / MOV / WebM · 4–30 с · лучше один человек в кадре</span>
+            <svg viewBox="0 0 24 24" width="26" height="26"><path fill="currentColor" d="M17 10.5V7a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-3.5l4 4v-11z"/></svg>
+            <b>Перетащите видео</b><span>или нажмите, чтобы выбрать · MP4 / MOV / WebM</span>
           </div>
           <video class="drop-preview" muted loop playsinline hidden></video>
           <div class="drop-meta" hidden></div>
         </label>
-      </div>
+      </section>
 
-      <div class="step">
-        <div class="step-head"><span class="num">2</span><span id="photosTitle">Ваши фото</span></div>
+      <section class="block">
+        <div class="block-head"><h2 id="photosTitle">Ваши фото</h2><span class="muted small" id="photosHint">лицо и полный рост — лучше оба</span></div>
         <div class="photos" id="objectPhotos" hidden>
           <label class="drop photo-drop" data-role="object">
             <input type="file" name="object" accept="image/*" hidden>
-            <div class="drop-empty"><svg viewBox="0 0 24 24" width="28" height="28"><path fill="currentColor" d="M12 2 3 7v10l9 5 9-5V7l-9-5zm0 2.3L18.7 8 12 11.7 5.3 8 12 4.3zM5 9.7l6 3.3v6.7l-6-3.3V9.7zm8 10v-6.7l6-3.3v6.7l-6 3.3z"/></svg><b>Фото объекта</b><span>предмет целиком, на простом фоне, хорошо освещён</span></div>
+            <div class="drop-empty"><svg viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M12 2 3 7v10l9 5 9-5V7l-9-5zm0 2.3L18.7 8 12 11.7 5.3 8 12 4.3zM5 9.7l6 3.3v6.7l-6-3.3V9.7zm8 10v-6.7l6-3.3v6.7l-6 3.3z"/></svg><b>Фото объекта</b><span>целиком, на простом фоне</span></div>
             <img class="drop-preview" alt="" hidden>
             <div class="photo-check" hidden></div>
           </label>
@@ -61,197 +65,226 @@
         <div class="photos" id="personPhotos">
           <label class="drop photo-drop" data-role="face">
             <input type="file" name="face" accept="image/*" hidden>
-            <div class="drop-empty"><svg viewBox="0 0 24 24" width="28" height="28"><path fill="currentColor" d="M12 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10zm0 2c-4 0-8 2-8 5v1h16v-1c0-3-4-5-8-5z"/></svg><b>Лицо крупно</b><span>анфас, ровный свет, без очков</span></div>
+            <div class="drop-empty"><svg viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M12 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10zm0 2c-4 0-8 2-8 5v1h16v-1c0-3-4-5-8-5z"/></svg><b>Лицо крупно</b><span>анфас, ровный свет</span></div>
             <img class="drop-preview" alt="" hidden>
             <div class="photo-check" hidden></div>
           </label>
           <label class="drop photo-drop" data-role="body">
             <input type="file" name="body" accept="image/*" hidden>
-            <div class="drop-empty"><svg viewBox="0 0 24 24" width="28" height="28"><path fill="currentColor" d="M12 2a2.5 2.5 0 1 1 0 5 2.5 2.5 0 0 1 0-5zM9 8h6l1 7h-2l-.5 7h-3L10 15H8z"/></svg><b>В полный рост</b><span>с головы до ног, в той одежде, что нужна</span></div>
+            <div class="drop-empty"><svg viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M12 2a2.5 2.5 0 1 1 0 5 2.5 2.5 0 0 1 0-5zM9 8h6l1 7h-2l-.5 7h-3L10 15H8z"/></svg><b>В полный рост</b><span>с головы до ног</span></div>
             <img class="drop-preview" alt="" hidden>
             <div class="photo-check" hidden></div>
           </label>
         </div>
         <label class="extras" id="extrasPick">
           <input type="file" name="extras" accept="image/*" multiple hidden>
-          <span id="extrasLabel">+ Добавить ракурсы (сбоку, сзади) — необязательно</span>
+          <span id="extrasLabel">+ Доп. ракурсы (сбоку, сзади)</span>
         </label>
-      </div>
+      </section>
 
-      <details class="step options">
-        <summary><span class="num">3</span>Настройки <small>— можно не трогать</small></summary>
-        <div class="grid">
-          <label class="field">
-            <span>Дубли <small>(лучший выбирается по сходству лица)</small></span>
-            <select name="takes">
-              <option value="1">1 — дешевле</option>
-              <option value="2">2 — выбрать лучший</option>
-              <option value="3">3 — максимум качества</option>
-            </select>
-          </label>
-          <label class="field">
-            <span>Кого заменить <small>(англ.)</small></span>
-            <input name="who" value="person" placeholder="person / man in black jacket">
-          </label>
-          <label class="field">
-            <span>Качество</span>
-            <select name="quality">
-              <option value="draft">Черновик → потом 1080p (дешевле)</option>
-              <option value="hd">Сразу 1080p</option>
-            </select>
-          </label>
-          <label class="field">
-            <span>Как скрыть человека</span>
-            <select name="masking">
-              <option value="auto">Авто</option>
-              <option value="cloud">Облако: SAM 3 + карта глубины (лучше)</option>
-              <option value="local">Локально: MediaPipe (бесплатно)</option>
-              <option value="none">Не скрывать (мультяшный исходник)</option>
-            </select>
-          </label>
-          <label class="field">
-            <span>Звук для липсинка</span>
-            <select name="audio">
-              <option value="auto">Авто</option>
-              <option value="vocals">Только голос (Demucs)</option>
-              <option value="full">Весь звук</option>
-              <option value="none">Без звука</option>
-            </select>
-          </label>
-          <label class="field">
-            <span>Проверка маски</span>
-            <select name="review">
-              <option value="auto">Только если есть проблемы</option>
-              <option value="always">Всегда перед отправкой</option>
-              <option value="never">Никогда</option>
-            </select>
-          </label>
-          <label class="field">
-            <span>Подготовка фото</span>
-            <select name="enhance">
-              <option value="auto">Авто: кроп лица, чистый фон</option>
-              <option value="off">Отправлять как есть</option>
-            </select>
-          </label>
-          <label class="field">
-            <span>Сетка лица <small>(мимика, губы)</small></span>
-            <select name="face_mesh">
-              <option value="auto">Авто</option>
-              <option value="off">Выкл</option>
-            </select>
-          </label>
-          <label class="field">
-            <span>Провайдер</span>
-            <select name="provider" id="providerSelect"></select>
-          </label>
-          <label class="field" id="modelField" hidden>
-            <span>Модель</span>
-            <select name="model" id="modelSelect"></select>
-          </label>
-          <label class="field wide">
-            <span>Дополнительно <small>(англ., необязательно)</small></span>
-            <input name="extra" placeholder="например: wearing a white hoodie, keep the sunglasses off">
-          </label>
+      <section class="block">
+        <div class="block-head"><h2>Генерация</h2></div>
+        <div class="field" id="modelField" hidden>
+          <span>Модель</span>
+          <div class="pills" id="modelPills"></div>
+          <select name="model" id="modelSelect" hidden></select>
+          <p class="model-warn" id="modelWarn" hidden></p>
         </div>
-      </details>
+        <div class="field">
+          <span>Качество</span>
+          <div class="pills" data-for="quality">
+            <button type="button" data-value="draft" class="on">Черновик <small>720p</small></button>
+            <button type="button" data-value="hd">Сразу 1080p</button>
+          </div>
+          <select name="quality" hidden><option value="draft">draft</option><option value="hd">hd</option></select>
+        </div>
+        <div class="field">
+          <span>Дубли <small>лучший выбирается по сходству лица</small></span>
+          <div class="pills" data-for="takes">
+            <button type="button" data-value="1" class="on">1</button>
+            <button type="button" data-value="2">2</button>
+            <button type="button" data-value="3">3</button>
+          </div>
+          <select name="takes" hidden><option value="1">1</option><option value="2">2</option><option value="3">3</option></select>
+        </div>
+        <label class="field">
+          <span>Дополнительно <small>по-английски, необязательно</small></span>
+          <input name="extra" placeholder="wearing a white hoodie, golden hour light">
+        </label>
 
-      <label class="consent">
-        <input type="checkbox" name="consent" value="yes" required>
-        <span>На фото я или человек, который дал согласие на такое видео.</span>
-      </label>
+        <details class="advanced">
+          <summary>Тонкие настройки</summary>
+          <div class="grid">
+            <label class="field">
+              <span>Кого заменить <small>англ.</small></span>
+              <input name="who" value="person" placeholder="man in black jacket">
+            </label>
+            <label class="field">
+              <span>Провайдер</span>
+              <select name="provider" id="providerSelect"></select>
+            </label>
+            <label class="field">
+              <span>Как скрыть человека</span>
+              <select name="masking">
+                <option value="auto">Авто</option>
+                <option value="cloud">Облако: SAM 3 + глубина</option>
+                <option value="local">Локально: MediaPipe</option>
+                <option value="none">Не скрывать</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Звук для липсинка</span>
+              <select name="audio">
+                <option value="auto">Авто</option>
+                <option value="vocals">Только голос (Demucs)</option>
+                <option value="full">Весь звук</option>
+                <option value="none">Без звука</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Проверка маски</span>
+              <select name="review">
+                <option value="auto">Если есть проблемы</option>
+                <option value="always">Всегда</option>
+                <option value="never">Никогда</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Подготовка фото</span>
+              <select name="enhance">
+                <option value="auto">Кроп лица, чистый фон</option>
+                <option value="off">Как есть</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Сетка лица</span>
+              <select name="face_mesh">
+                <option value="auto">Авто</option>
+                <option value="off">Выкл</option>
+              </select>
+            </label>
+          </div>
+        </details>
+      </section>
 
-      <div class="actions">
-        <button type="submit" class="primary" id="submitBtn">Сгенерировать</button>
-        <span class="hint" id="formHint"></span>
+      <div class="cta">
+        <label class="consent">
+          <input type="checkbox" name="consent" value="yes" required>
+          <span>На фото я или человек, который дал согласие на такое видео.</span>
+        </label>
+        <button type="submit" class="primary big" id="submitBtn">
+          <svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M12 2l2.4 6.6L21 11l-6.6 2.4L12 20l-2.4-6.6L3 11l6.6-2.4z"/></svg>
+          Сгенерировать
+        </button>
+        <div class="summary" id="summary"></div>
+        <div class="hint" id="formHint" role="status"></div>
       </div>
     </form>
-  </section>
-
-  <section class="card job" id="jobCard" hidden>
-    <div class="job-head">
-      <button class="ghost small" id="backBtn">← Новое видео</button>
-      <span class="job-id" id="jobId"></span>
-    </div>
-    <div class="status-line"><b id="jobStage"></b><span id="jobPct"></span></div>
-    <div class="bar"><i id="jobBar"></i></div>
-    <ol class="steps" id="jobSteps">
-      <li data-k="normalize">Подготовка</li><li data-k="mask">Маска</li><li data-k="upload">Отправка</li><li data-k="generate">Генерация</li><li data-k="finish">Звук</li><li data-k="done">Готово</li>
-    </ol>
-    <div class="alert error" id="jobError" hidden></div>
-    <div class="alert warn" id="jobNotices" hidden></div>
-
-    <div class="result" id="resultBox" hidden>
-      <video id="resultVideo" controls playsinline></video>
-      <div class="score-line" id="scoreLine" hidden></div>
-      <div class="takes" id="takesBox" hidden></div>
-      <div class="result-actions">
-        <a class="primary" id="downloadBtn" download>Скачать</a>
-        <button class="secondary" id="hdBtn">Сделать 1080p</button>
-        <a class="secondary" id="downloadHdBtn" download hidden>Скачать 1080p</a>
-        <span class="hint" id="hdHint"></span>
-      </div>
-    </div>
-
-    <div class="review-box" id="reviewBox" hidden>
-      <p>Проверьте маску: сверху оригинал, снизу то, что получит Seedance. Человек должен быть полностью закрыт силуэтом.</p>
-      <div class="review-actions">
-        <button class="primary" id="approveBtn">Всё хорошо, отправить</button>
-        <button class="ghost" id="cancelBtn">Отменить</button>
-      </div>
-    </div>
-
-    <div class="job-actions">
-      <button class="secondary" id="retryBtn" hidden>Повторить</button>
-      <button class="ghost" id="stopBtn" hidden>Остановить</button>
-    </div>
-
-    <div class="media-row">
-      <figure id="previewFig" hidden><img id="previewImg" alt="Маска: оригинал и гид"><figcaption>Оригинал / что видит модель</figcaption></figure>
-      <figure id="sheetFig" hidden><img id="sheetImg" alt="Ваши фото"><figcaption>Что получит Seedance: ваши фото после подготовки</figcaption></figure>
-    </div>
-
-    <details class="more"><summary>Промпт и журнал</summary>
-      <pre id="jobPrompt"></pre>
-      <ul class="log" id="jobLog"></ul>
-    </details>
-  </section>
-
-  <aside class="card history">
-    <h2>Мои видео</h2>
-    <div id="historyList" class="history-list"><p class="muted">Пока пусто.</p></div>
   </aside>
+
+  <!-- ===== right: workspace ===== -->
+  <section class="workspace">
+    <div id="galleryCard">
+      <div class="ws-head"><h1>Мои видео</h1><span class="muted small" id="galleryHint"></span></div>
+      <div class="gallery" id="historyList"></div>
+      <div class="empty" id="emptyState" hidden>
+        <div class="empty-art" aria-hidden="true">
+          <svg viewBox="0 0 64 64" width="64" height="64"><circle cx="32" cy="32" r="26" fill="var(--accent)"/><circle cx="42" cy="24" r="22" fill="var(--bg)"/></svg>
+        </div>
+        <h2>Первое видео — за пару минут</h2>
+        <ol class="tips">
+          <li>Выберите шаблон слева — «Я в главной роли» подходит для начала.</li>
+          <li>Загрузите видео 4–15 с, где один человек и нет склеек.</li>
+          <li>Добавьте фото лица крупно и в полный рост — сходство будет выше.</li>
+          <li>Начните с черновика 720p, а лучший результат доведите до 1080p.</li>
+        </ol>
+      </div>
+    </div>
+
+    <div class="job" id="jobCard" hidden>
+      <div class="job-head">
+        <button class="ghost small" id="backBtn" type="button">← Все видео</button>
+        <span class="job-id" id="jobId"></span>
+      </div>
+
+      <div class="stage">
+        <div class="status-line"><b id="jobStage"></b><span id="jobPct"></span></div>
+        <div class="bar"><i id="jobBar"></i></div>
+        <ol class="steps" id="jobSteps">
+          <li data-k="normalize">Подготовка</li><li data-k="mask">Маска</li><li data-k="upload">Отправка</li><li data-k="generate">Генерация</li><li data-k="finish">Звук</li><li data-k="done">Готово</li>
+        </ol>
+      </div>
+
+      <div class="alert error" id="jobError" hidden></div>
+
+      <div class="review-box" id="reviewBox" hidden>
+        <p>Проверьте маску: сверху оригинал, снизу то, что получит Seedance. Человек должен быть полностью закрыт силуэтом.</p>
+        <div class="row">
+          <button class="primary" id="approveBtn" type="button">Всё хорошо, отправить</button>
+          <button class="ghost" id="cancelBtn" type="button">Отменить</button>
+        </div>
+      </div>
+
+      <div class="result" id="resultBox" hidden>
+        <div class="player"><video id="resultVideo" controls playsinline></video></div>
+        <div class="score-line" id="scoreLine" hidden></div>
+        <div class="takes" id="takesBox" hidden></div>
+        <div class="row">
+          <a class="primary" id="downloadBtn" download>Скачать</a>
+          <button class="secondary" id="hdBtn" type="button">Сделать 1080p</button>
+          <a class="secondary" id="downloadHdBtn" download hidden>Скачать 1080p</a>
+          <span class="hint" id="hdHint"></span>
+        </div>
+      </div>
+
+      <div class="row">
+        <button class="secondary" id="retryBtn" type="button" hidden>Повторить</button>
+        <button class="ghost" id="stopBtn" type="button" hidden>Остановить</button>
+      </div>
+
+      <div class="alert warn" id="jobNotices" hidden></div>
+
+      <div class="media-row">
+        <figure id="previewFig" hidden><img id="previewImg" alt="Маска: оригинал и гид"><figcaption>Оригинал / что видит модель</figcaption></figure>
+        <figure id="sheetFig" hidden><img id="sheetImg" alt="Ваши фото"><figcaption>Что получит Seedance: фото после подготовки</figcaption></figure>
+      </div>
+
+      <details class="more"><summary>Промпт и журнал</summary>
+        <pre id="jobPrompt"></pre>
+        <ul class="log" id="jobLog"></ul>
+      </details>
+    </div>
+  </section>
 </main>
 
 <dialog id="settings">
   <form method="dialog" id="settingsForm">
-    <h2>Настройки</h2>
-    <p class="muted">Ключи хранятся только в файле <code>.env</code> на этом компьютере.</p>
+    <div class="dialog-head"><h2>Настройки</h2><button class="icon-btn" value="cancel" formnovalidate aria-label="Закрыть">✕</button></div>
+    <p class="muted small">Ключи хранятся только в файле <code>.env</code> на этом компьютере.</p>
+    <p class="muted hw" id="hwLine"></p>
     <label class="field"><span>Провайдер по умолчанию</span>
       <select name="PROVIDER">
-        <option value="enhancor">Enhancor · Seedance (лица разрешены)</option>
         <option value="dreamina">Dreamina · Seedance по подписке (useapi.net)</option>
+        <option value="enhancor">Enhancor · Seedance</option>
         <option value="byteplus">BytePlus ModelArk · Seedance 2.0</option>
         <option value="mock">Тест без оплаты (mock)</option>
       </select></label>
-    <label class="field"><span>ENHANCOR_API_KEY</span><input name="ENHANCOR_API_KEY" autocomplete="off"></label>
-    <label class="field"><span>USEAPI_TOKEN <small>(useapi.net, для Dreamina)</small></span><input name="USEAPI_TOKEN" autocomplete="off"></label>
-    <label class="field"><span>DREAMINA_ACCOUNT <small>(email аккаунта; пусто — первый подключённый)</small></span><input name="DREAMINA_ACCOUNT" autocomplete="off"></label>
-    <label class="field"><span>Модель Dreamina по умолчанию</span>
+    <h3>Dreamina</h3>
+    <label class="field"><span>USEAPI_TOKEN <small>useapi.net → API token</small></span><input name="USEAPI_TOKEN" autocomplete="off"></label>
+    <label class="field"><span>DREAMINA_ACCOUNT <small>email; пусто — первый подключённый</small></span><input name="DREAMINA_ACCOUNT" autocomplete="off"></label>
+    <label class="field"><span>Модель по умолчанию</span>
       <select name="DREAMINA_MODEL">
-        <option value="seedance-2.5">Seedance 2.5 — лучшее, реальные лица</option>
+        <option value="seedance-2.5">Seedance 2.5 — реальные лица, лучшее качество</option>
         <option value="seedance-2.0">Seedance 2.0</option>
         <option value="seedance-2.0-fast">Seedance 2.0 Fast</option>
         <option value="seedance-2.0-mini">Seedance 2.0 Mini (720p)</option>
       </select></label>
+    <h3>Другие провайдеры</h3>
+    <label class="field"><span>ENHANCOR_API_KEY</span><input name="ENHANCOR_API_KEY" autocomplete="off"></label>
     <label class="field"><span>BYTEPLUS_API_KEY</span><input name="BYTEPLUS_API_KEY" autocomplete="off"></label>
     <label class="field"><span>BYTEPLUS_MODEL</span><input name="BYTEPLUS_MODEL"></label>
-    <label class="field"><span>REPLICATE_API_TOKEN <small>(маска SAM 3, глубина, Demucs)</small></span><input name="REPLICATE_API_TOKEN" autocomplete="off"></label>
-    <label class="field"><span>Как отдавать файлы провайдеру</span>
-      <select name="MEDIA_HOST">
-        <option value="tunnel">Временный туннель Cloudflare (приватно)</option>
-        <option value="tmpfiles">tmpfiles.org (публично, ~1 ч)</option>
-        <option value="litterbox">litterbox (публично, 24 ч)</option>
-      </select></label>
+    <label class="field"><span>REPLICATE_API_TOKEN <small>облачная маска SAM 3, глубина, Demucs</small></span><input name="REPLICATE_API_TOKEN" autocomplete="off"></label>
+    <h3>Компьютер</h3>
     <label class="field"><span>Кодирование видео</span>
       <select name="VIDEO_ENCODER">
         <option value="auto">Авто (видеокарта NVIDIA, если есть)</option>
@@ -264,11 +297,16 @@
         <option value="balanced">Баланс: ~2× быстрее, хуже при нескольких людях</option>
         <option value="fast">Быстро: для слабых ПК</option>
       </select></label>
-    <p class="muted hw" id="hwLine"></p>
-    <label class="field"><span>PUBLIC_BASE_URL <small>(свой HTTPS-туннель, необязательно)</small></span><input name="PUBLIC_BASE_URL" placeholder="https://…"></label>
-    <div class="actions">
-      <button class="primary" value="save" id="saveSettings">Сохранить</button>
+    <label class="field"><span>Как отдавать файлы провайдеру <small>Dreamina не нужно</small></span>
+      <select name="MEDIA_HOST">
+        <option value="tunnel">Временный туннель Cloudflare (приватно)</option>
+        <option value="tmpfiles">tmpfiles.org (публично, ~1 ч)</option>
+        <option value="litterbox">litterbox (публично, 24 ч)</option>
+      </select></label>
+    <label class="field"><span>PUBLIC_BASE_URL <small>свой HTTPS-туннель</small></span><input name="PUBLIC_BASE_URL" placeholder="https://…"></label>
+    <div class="row end">
       <button class="ghost" value="cancel" formnovalidate>Закрыть</button>
+      <button class="primary" value="save" id="saveSettings">Сохранить</button>
     </div>
   </form>
 </dialog>

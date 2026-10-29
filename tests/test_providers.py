@@ -194,5 +194,12 @@ def test_dreamina_poll(dreamina, monkeypatch):
     monkeypatch.setattr(providers.requests, "get", lambda url, **k: seen.append(url) or FakeResponse(next(replies)))
     assert dreamina.poll("user:1-dreamina:US:me@x.com-video:123")["state"] == "pending"
     assert dreamina.poll("j")["url"] == "clean"  # the clean master, not the watermarked copy
-    assert dreamina.poll("j")["error"] == "moderation — face"
+    assert dreamina.poll("j")["error"].startswith("moderation — face\n")  # plus the advice
     assert seen[0].endswith("/videos/user:1-dreamina:US:me@x.com-video:123")
+
+
+def test_dreamina_moderation_is_explained(dreamina, monkeypatch):
+    monkeypatch.setattr(providers.requests, "get", lambda *a, **k: FakeResponse({"status": "failed", "error": "Content moderation", "errorDetails": "real human face detected"}))
+    err = dreamina.poll("j")["error"]
+    assert "Seedance 2.5" in err and "real human face" in err
+    assert providers.Dreamina.explain("timeout") == "timeout"
