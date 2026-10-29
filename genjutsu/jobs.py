@@ -409,7 +409,7 @@ def _inputs(job_id, hd=False):
         # Seedance needs ≥4 s: hold the last frame, the final file is cut back to the real length.
         padded = d / "guidance-padded.mp4"
         media.run(["-i", guide, "-vf", f"tpad=stop_mode=clone:stop_duration={MIN_PROVIDER_SECONDS - meta['duration'] + 0.1:.2f}",
-                   "-af", "apad", "-t", str(MIN_PROVIDER_SECONDS), "-c:v", "libx264", "-crf", "16", "-pix_fmt", "yuv420p", padded], "дополнение до 4 с")
+                   "-af", "apad", "-t", str(MIN_PROVIDER_SECONDS), *media.venc(16), padded], "дополнение до 4 с")
         guide = padded
     plan = plan_segments(max(meta["duration"], MIN_PROVIDER_SECONDS), provider.max_seconds)
 

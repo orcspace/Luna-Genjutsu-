@@ -6,9 +6,12 @@ import subprocess
 from functools import lru_cache
 from pathlib import Path
 
+import cv2
 import numpy as np
 
 FPS = 24
+_TEXT = {"text": True, "encoding": "utf-8", "errors": "replace"}  # ffmpeg prints UTF-8; never trust the Windows code page
+_nvenc_failed = False
 
 
 class MediaError(RuntimeError):
@@ -35,14 +38,59 @@ def ffprobe():
 
 @lru_cache(maxsize=1)
 def has_rubberband():
-    out = subprocess.run([ffmpeg(), "-hide_banner", "-filters"], capture_output=True, text=True).stdout
+    out = subprocess.run([ffmpeg(), "-hide_banner", "-filters"], capture_output=True, **_TEXT).stdout
     return bool(re.search(r"\srubberband\s", out))
 
 
+def venc(crf=16):
+    """Video encoder arguments: NVENC on an NVIDIA card (fast, leaves the CPU to MediaPipe), x264 otherwise.
+    NVENC's cq runs about 3 points softer than x264's crf at the same number, hence the offset."""
+    from . import hardware
+
+    if not _nvenc_failed and hardware.encoder() == "nvenc":
+        return ["-c:v", "h264_nvenc", "-preset", "p5", "-tune", "hq", "-rc", "vbr", "-cq", str(crf + 3), "-b:v", "0", "-pix_fmt", "yuv420p"]
+    return ["-c:v", "libx264", "-crf", str(crf), "-preset", "medium", "-pix_fmt", "yuv420p"]
+
+
+def _cpu_fallback(args):
+    """Same command with the NVENC block swapped for x264 (busy GPU, old driver, session limit)."""
+    out, i = [], 0
+    while i < len(args):
+        if args[i] == "-c:v" and i + 1 < len(args) and args[i + 1] == "h264_nvenc":
+            cq = int(args[args.index("-cq", i) + 1])
+            out += ["-c:v", "libx264", "-crf", str(cq - 3), "-preset", "medium", "-pix_fmt", "yuv420p"]
+            i += 14
+            continue
+        out.append(args[i])
+        i += 1
+    return out
+
+
 def run(args, what="ffmpeg"):
-    proc = subprocess.run([ffmpeg(), "-hide_banner", "-loglevel", "error", "-y", *map(str, args)], capture_output=True, text=True)
+    global _nvenc_failed
+    args = [str(a) for a in args]
+    proc = subprocess.run([ffmpeg(), "-hide_banner", "-loglevel", "error", "-y", *args], capture_output=True, **_TEXT)
+    if proc.returncode != 0 and "h264_nvenc" in args:
+        _nvenc_failed = True
+        proc = subprocess.run([ffmpeg(), "-hide_banner", "-loglevel", "error", "-y", *_cpu_fallback(args)], capture_output=True, **_TEXT)
     if proc.returncode != 0:
         raise MediaError(f"{what}: {proc.stderr.strip()[-800:]}")
+
+
+def read_image(path, flags=cv2.IMREAD_COLOR):
+    """cv2.imread that also works with non-ASCII paths on Windows (e.g. C:\\Users\\Иван)."""
+    try:
+        data = np.fromfile(str(path), np.uint8)
+    except OSError:
+        return None
+    return cv2.imdecode(data, flags) if data.size else None
+
+
+def write_image(path, img, params=()):
+    ok, buf = cv2.imencode(Path(path).suffix or ".png", img, list(params))
+    if not ok:
+        raise MediaError(f"Не удалось сохранить {Path(path).name}")
+    Path(path).write_bytes(buf.tobytes())
 
 
 def probe(path):
@@ -51,7 +99,7 @@ def probe(path):
     if ffprobe():
         proc = subprocess.run(
             [ffprobe(), "-v", "error", "-print_format", "json", "-show_format", "-show_streams", path],
-            capture_output=True, text=True,
+            capture_output=True, **_TEXT,
         )
         if proc.returncode != 0:
             raise MediaError("Не удалось прочитать файл: " + proc.stderr.strip()[-300:])
@@ -77,7 +125,7 @@ def probe(path):
             "has_audio": any(s.get("codec_type") == "audio" for s in data["streams"]),
         }
     # Fallback for a bundled ffmpeg without ffprobe: parse `ffmpeg -i`.
-    err = subprocess.run([ffmpeg(), "-hide_banner", "-i", path], capture_output=True, text=True).stderr
+    err = subprocess.run([ffmpeg(), "-hide_banner", "-i", path], capture_output=True, **_TEXT).stderr
     m = re.search(r"Duration: (\d+):(\d+):([\d.]+)", err)
     v = re.search(r"Video: .*?, (\d{2,5})x(\d{2,5})", err)
     if not v:
@@ -97,7 +145,7 @@ def probe(path):
 
 def duration(path):
     """Length of any media file, audio-only included."""
-    err = subprocess.run([ffmpeg(), "-hide_banner", "-i", str(path)], capture_output=True, text=True).stderr
+    err = subprocess.run([ffmpeg(), "-hide_banner", "-i", str(path)], capture_output=True, **_TEXT).stderr
     m = re.search(r"Duration: (\d+):(\d+):([\d.]+)", err)
     if not m:
         raise MediaError("Не удалось определить длительность файла.")
@@ -110,7 +158,7 @@ def normalize_video(src, dst, max_side=960, max_seconds=None):
         f"scale='if(gte(iw,ih),min({max_side},iw),-2)':'if(gte(iw,ih),-2,min({max_side},ih))':flags=lanczos,"
         "scale=trunc(iw/2)*2:trunc(ih/2)*2,setsar=1"
     )
-    args = ["-i", src, "-an", "-vf", f"fps={FPS},{scale}", "-c:v", "libx264", "-crf", "16", "-preset", "medium", "-pix_fmt", "yuv420p"]
+    args = ["-i", src, "-an", "-vf", f"fps={FPS},{scale}", *venc(16)]
     if max_seconds:
         args += ["-t", f"{max_seconds:.3f}"]
     run(args + [dst], "нормализация видео")
@@ -140,7 +188,7 @@ def mux(video, audio, dst):
 
 
 def cut(src, dst, start, duration):
-    run(["-ss", f"{start:.3f}", "-i", src, "-t", f"{duration:.3f}", "-c:v", "libx264", "-crf", "16", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", dst], "нарезка")
+    run(["-ss", f"{start:.3f}", "-i", src, "-t", f"{duration:.3f}", *venc(16), "-c:a", "aac", "-b:a", "192k", dst], "нарезка")
 
 
 def concat(parts, dst):
@@ -152,7 +200,7 @@ def concat(parts, dst):
         inputs += ["-i", p]
         chains.append(f"[{i}:v]fps={FPS},scale={w}:{h}:flags=lanczos,setsar=1[v{i}]")
     graph = ";".join(chains) + ";" + "".join(f"[v{i}]" for i in range(len(parts))) + f"concat=n={len(parts)}:v=1:a=0[out]"
-    run(inputs + ["-filter_complex", graph, "-map", "[out]", "-c:v", "libx264", "-crf", "16", "-pix_fmt", "yuv420p", dst], "склейка")
+    run(inputs + ["-filter_complex", graph, "-map", "[out]", *venc(16), dst], "склейка")
 
 
 def crossfade_concat(parts, durations, overlap, dst):
@@ -173,7 +221,7 @@ def crossfade_concat(parts, durations, overlap, dst):
         out = f"x{i}"
         chains.append(f"[{last}][v{i}]xfade=transition=fade:duration={overlap:.3f}:offset={offset:.3f}[{out}]")
         last = out
-    run(inputs + ["-filter_complex", ";".join(chains), "-map", f"[{last}]", "-c:v", "libx264", "-crf", "16", "-pix_fmt", "yuv420p", dst], "склейка с переходом")
+    run(inputs + ["-filter_complex", ";".join(chains), "-map", f"[{last}]", *venc(16), dst], "склейка с переходом")
 
 
 def restore_audio(generated, source, dst, duration):
@@ -187,9 +235,9 @@ def restore_audio(generated, source, dst, duration):
     gap = duration - gen["duration"]
     video_args = ["-c:v", "copy"]
     if gap > 0.05:
-        video_args = ["-vf", f"tpad=stop_mode=clone:stop_duration={gap:.3f}", "-c:v", "libx264", "-crf", "16", "-pix_fmt", "yuv420p"]
+        video_args = ["-vf", f"tpad=stop_mode=clone:stop_duration={gap:.3f}", *venc(16)]
     elif gap < -0.05:
-        video_args = ["-c:v", "libx264", "-crf", "16", "-pix_fmt", "yuv420p"]
+        video_args = venc(16)
     base = ["-i", generated]
     if not src_has_audio:
         run(base + ["-map", "0:v:0", *video_args, "-t", f"{duration:.3f}", "-movflags", "+faststart", dst], "финальный файл")
@@ -207,10 +255,12 @@ def thumbnail(video, dst, at=0.5):
     run(["-ss", f"{at:.2f}", "-i", video, "-frames:v", "1", "-vf", "scale='min(640,iw)':-2", "-q:v", "3", dst], "превью")
 
 
-def read_frames(path, width, height):
-    """Yields RGB uint8 frames of exactly width×height."""
+def read_frames(path, width, height, fps=None):
+    """Yields RGB uint8 frames of exactly width×height; with fps, only that many per second
+    (ffmpeg drops the rest, so sampling a 1080p clip doesn't push every frame through the pipe)."""
+    vf = (f"fps={fps}," if fps else "") + f"scale={width}:{height}:flags=bilinear"
     proc = subprocess.Popen(
-        [ffmpeg(), "-hide_banner", "-loglevel", "error", "-i", str(path), "-vf", f"scale={width}:{height}:flags=bilinear", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
+        [ffmpeg(), "-hide_banner", "-loglevel", "error", "-i", str(path), "-vf", vf, "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
         stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
     )
     size = width * height * 3
@@ -230,7 +280,7 @@ class FrameWriter:
         self.path = Path(path)
         self.proc = subprocess.Popen(
             [ffmpeg(), "-hide_banner", "-loglevel", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{width}x{height}", "-r", str(FPS), "-i", "-",
-             "-c:v", "libx264", "-crf", str(crf), "-preset", "medium", "-pix_fmt", "yuv420p", str(path)],
+             *venc(crf), str(path)],
             stdin=subprocess.PIPE, stderr=subprocess.PIPE,
         )
 

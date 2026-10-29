@@ -6,6 +6,9 @@ OpenCV's SFace, aligned from the same landmarks, so no separate face detector is
 import hashlib
 import json
 import math
+import os
+import platform
+import shutil
 from functools import lru_cache
 from pathlib import Path
 
@@ -78,7 +81,7 @@ def _landmarker(video=False, num_faces=1, blendshapes=False):
     from mediapipe.tasks.python import BaseOptions, vision
 
     options = vision.FaceLandmarkerOptions(
-        base_options=BaseOptions(model_asset_path=str(_landmarker_model())),
+        base_options=BaseOptions(model_asset_buffer=_model_bytes(_landmarker_model())),
         running_mode=vision.RunningMode.VIDEO if video else vision.RunningMode.IMAGE,
         num_faces=num_faces,
         output_face_blendshapes=blendshapes,
@@ -94,6 +97,22 @@ def _landmarker(video=False, num_faces=1, blendshapes=False):
         raise
 
 
+def _model_bytes(path):
+    from .masking import model_bytes
+
+    return model_bytes(path)
+
+
+def _pose_landmarker(num_poses=3, segmentation=False):
+    from mediapipe.tasks.python import BaseOptions, vision
+
+    from .masking import _pose_model
+
+    options = vision.PoseLandmarkerOptions(base_options=BaseOptions(model_asset_buffer=_model_bytes(_pose_model("heavy"))),
+                                           num_poses=num_poses, output_segmentation_masks=segmentation)
+    return vision.PoseLandmarker.create_from_options(options)
+
+
 def _mp_image(rgb):
     import mediapipe as mp
 
@@ -101,7 +120,7 @@ def _mp_image(rgb):
 
 
 def read_rgb(path):
-    bgr = cv2.imread(str(path), cv2.IMREAD_COLOR)
+    bgr = media.read_image(path, cv2.IMREAD_COLOR)
     if bgr is None:
         raise FaceError("Не удалось открыть фото.")
     return cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
@@ -165,28 +184,28 @@ def head_roi_from_mask(mask):
     return (float(np.median(xs[band])) - side * 0.6, top - side * 0.1, side * 1.2)
 
 
-def _pose_head_rois(rgb):
-    from mediapipe.tasks.python import BaseOptions, vision
-
-    from .masking import _pose_model
-
+def _pose_head_rois(rgb, pose_lm=None):
     h, w = rgb.shape[:2]
-    options = vision.PoseLandmarkerOptions(base_options=BaseOptions(model_asset_path=str(_pose_model())), num_poses=3)
-    with vision.PoseLandmarker.create_from_options(options) as lm:
-        result = lm.detect(_mp_image(rgb))
+    if pose_lm is None:
+        with _pose_landmarker(3) as lm:
+            return _pose_head_rois(rgb, lm)
+    result = pose_lm.detect(_mp_image(rgb))
     rois = [head_roi_from_pose([[p.x, p.y, p.visibility or 0] for p in pose], w, h) for pose in result.pose_landmarks or []]
     return [r for r in rois if r]
 
 
-def detect(rgb, num_faces=3, blendshapes=False):
-    """Faces, biggest first. Small faces (full-body shots) are found through the head from the pose."""
+def detect(rgb, num_faces=3, blendshapes=False, lm=None, pose_lm=None):
+    """Faces, biggest first. Small faces (full-body shots) are found through the head from the pose.
+    Pass open landmarkers when calling in a loop: loading the models costs more than running them."""
+    if lm is None:
+        with _landmarker(num_faces=num_faces, blendshapes=blendshapes) as own:
+            return detect(rgb, num_faces, blendshapes, own, pose_lm)
     h, w = rgb.shape[:2]
-    with _landmarker(num_faces=num_faces, blendshapes=blendshapes) as lm:
-        faces = _faces_from(lm.detect(_mp_image(rgb)), w, h)
-        if faces:
-            return faces
-        for roi in _pose_head_rois(rgb):
-            faces += _detect_in(lm, rgb, roi)[:1]
+    faces = _faces_from(lm.detect(_mp_image(rgb)), w, h)
+    if faces:
+        return faces
+    for roi in _pose_head_rois(rgb, pose_lm):
+        faces += _detect_in(lm, rgb, roi)[:1]
     return sorted(faces, key=_area, reverse=True)
 
 
@@ -253,20 +272,15 @@ def face_closeup(path, dst, report=None):
     x0 = int(min(max(0, cx - cw / 2), w - cw))
     y0 = int(min(max(0, cy - ch / 2), h - ch))
     out = rgb[y0:y0 + int(ch), x0:x0 + int(cw)]
-    cv2.imwrite(str(dst), cv2.cvtColor(out, cv2.COLOR_RGB2BGR), [cv2.IMWRITE_JPEG_QUALITY, 95])
+    media.write_image(dst, cv2.cvtColor(out, cv2.COLOR_RGB2BGR), [cv2.IMWRITE_JPEG_QUALITY, 95])
     return dst
 
 
 def clean_background(path, dst, background=(236, 236, 236)):
     """Person on a plain light background, cropped to fill the frame. None if segmentation is unsure."""
-    from mediapipe.tasks.python import BaseOptions, vision
-
-    from .masking import _pose_model
-
     rgb = read_rgb(path)
     h, w = rgb.shape[:2]
-    options = vision.PoseLandmarkerOptions(base_options=BaseOptions(model_asset_path=str(_pose_model())), num_poses=2, output_segmentation_masks=True)
-    with vision.PoseLandmarker.create_from_options(options) as lm:
+    with _pose_landmarker(2, segmentation=True) as lm:
         result = lm.detect(_mp_image(rgb))
     masks = [np.squeeze(m.numpy_view()).astype(np.float32) for m in (result.segmentation_masks or [])]
     if not masks:
@@ -286,7 +300,7 @@ def clean_background(path, dst, background=(236, 236, 236)):
     ys, xs = np.where(keep)
     m = int(0.06 * max(np.ptp(ys), np.ptp(xs)))
     out = out[max(0, ys.min() - m):min(h, ys.max() + m), max(0, xs.min() - m):min(w, xs.max() + m)]
-    cv2.imwrite(str(dst), cv2.cvtColor(out, cv2.COLOR_RGB2BGR), [cv2.IMWRITE_JPEG_QUALITY, 95])
+    media.write_image(dst, cv2.cvtColor(out, cv2.COLOR_RGB2BGR), [cv2.IMWRITE_JPEG_QUALITY, 95])
     return dst
 
 
@@ -431,9 +445,20 @@ def sface_row(pts):
     return np.array([[x0, y0, x1 - x0, y1 - y0, *e1, *e2, *pts[NOSE], *m1, *m2, 1.0]], np.float32)
 
 
+def _ascii_path(path):
+    """OpenCV's model loader can't open non-ASCII paths on Windows: keep a copy in the ASCII Public folder."""
+    if str(path).isascii() or platform.system() != "Windows":
+        return path
+    target = Path(os.environ.get("PUBLIC", r"C:\Users\Public")) / "LunaGenjutsu" / path.name
+    if not target.exists() or target.stat().st_size != path.stat().st_size:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(path, target)
+    return target
+
+
 class Identity:
     def __init__(self):
-        self.rec = cv2.FaceRecognizerSF.create(str(sface_model()), "")
+        self.rec = cv2.FaceRecognizerSF.create(str(_ascii_path(sface_model())), "")
 
     def embed(self, rgb, pts):
         bgr = cv2.cvtColor(np.ascontiguousarray(rgb), cv2.COLOR_RGB2BGR)
@@ -451,24 +476,23 @@ def score_value(similarity):
 def score_video(video, reference_photos, samples=16, identity=None):
     """How much the person in the video looks like the reference photos."""
     identity = identity or Identity()
-    refs = []
-    for p in reference_photos:
-        rgb = read_rgb(p)
-        faces = detect(rgb, num_faces=1)
-        if faces:
-            refs.append(identity.embed(rgb, faces[0]["pts"]))
-    if not refs:
-        raise FaceError("На фото не найдено лицо для сравнения.")
     info = media.probe(video)
     w, h = info["width"], info["height"]
-    step = max(1, int(round(info["duration"] * media.FPS / samples)))
     per_frame = []
-    for i, rgb in enumerate(media.read_frames(video, w, h)):
-        if i % step:
-            continue
-        # detect() also finds small faces (full-body shots) through the head from the pose.
-        found = detect(rgb, num_faces=4)
-        per_frame.append(max((max(identity.cosine(identity.embed(rgb, f["pts"]), r) for r in refs) for f in found), default=None))
+    with _landmarker(num_faces=4) as lm, _pose_landmarker(3) as pose_lm:
+        refs = []
+        for p in reference_photos:
+            rgb = read_rgb(p)
+            found = detect(rgb, lm=lm, pose_lm=pose_lm)
+            if found:
+                refs.append(identity.embed(rgb, found[0]["pts"]))
+        if not refs:
+            raise FaceError("На фото не найдено лицо для сравнения.")
+        # Only the sampled frames leave ffmpeg; the models stay loaded for the whole pass.
+        rate = samples / max(info["duration"], 0.5)
+        for rgb in media.read_frames(video, w, h, fps=f"{rate:.4f}"):
+            found = detect(rgb, lm=lm, pose_lm=pose_lm)
+            per_frame.append(max((max(identity.cosine(identity.embed(rgb, f["pts"]), r) for r in refs) for f in found), default=None))
     found = [s for s in per_frame if s is not None]
     if not found:
         return {"score": 0, "similarity": None, "coverage": 0.0, "matched": 0.0, "frames": len(per_frame)}

@@ -162,3 +162,4 @@ dialog .field { margin-bottom: 12px; }
 .tpl-field { margin-top: 12px; }
 @media (max-width: 900px) { .templates { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 520px) { .templates { grid-template-columns: repeat(2, minmax(0, 1fr)); } .tpl small { display: none; } .tpl { min-height: 76px; } }
+.hw { font-size: 12px; margin: -4px 0 12px; }

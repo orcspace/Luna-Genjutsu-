@@ -31,6 +31,13 @@ async function loadConfig() {
   $('select[name=masking] option[value=cloud]').disabled = !config.replicate;
   $('select[name=audio] option[value=vocals]').disabled = !config.replicate;
   if (!config.ffmpeg) hint("ffmpeg не найден — установите его, без него обработка видео невозможна.", true);
+  const hw = config.hardware || {};
+  $("#hwLine").textContent = [
+    hw.gpu ? `Видеокарта: ${hw.gpu.name}${hw.gpu.vram_gb ? ` ${hw.gpu.vram_gb} ГБ` : ""}` : "Видеокарта NVIDIA не найдена",
+    `кодирование: ${hw.encoder === "nvenc" ? "NVENC (видеокарта)" : "процессор"}`,
+    hw.cpu_threads ? `потоков CPU: ${hw.cpu_threads}` : "",
+    hw.ram_gb ? `ОЗУ: ${hw.ram_gb} ГБ` : "",
+  ].filter(Boolean).join(" · ");
 }
 
 // Model choice for providers that offer several (Dreamina).

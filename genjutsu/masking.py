@@ -5,17 +5,18 @@ Masks are stored as one PNG per frame (mask_00000.png …) whichever segmenter m
 """
 import json
 import zipfile
+from functools import lru_cache
 from pathlib import Path
 
 import cv2
 import numpy as np
 
-from . import media, replicate
+from . import hardware, media, replicate
 from .config import MODELS
 
 SAM3_VERSION = "408f82fc20c300aac5d61d2e34ddb34cd0181e810e9f609d250aed14d5f81269"  # lucataco/sam3-video
 DEPTH_MODEL = "lucataco/depth-anything-video"
-POSE_MODEL_URL = "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_heavy/float16/latest/pose_landmarker_heavy.task"
+POSE_MODEL_URL = "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_{v}/float16/latest/pose_landmarker_{v}.task"
 
 EMPTY_FRAME = 0.002  # mask area below this share of the frame counts as "nobody found"
 HOLD_FRAMES = 12  # half a second at 24 fps
@@ -61,16 +62,25 @@ def depth_cloud(video, folder, status):
     return replicate.download(output, Path(folder) / "depth-raw.mp4")
 
 
-def _pose_model():
-    path = MODELS / "pose_landmarker_heavy.task"
+def _pose_model(variant="heavy"):
+    """lite / full / heavy: speed against accuracy (LOCAL_QUALITY). Photos always use heavy."""
+    path = MODELS / f"pose_landmarker_{variant}.task"
     if not path.exists():
         import requests
 
         MODELS.mkdir(parents=True, exist_ok=True)
-        r = requests.get(POSE_MODEL_URL, timeout=300)
+        r = requests.get(POSE_MODEL_URL.format(v=variant), timeout=300)
         r.raise_for_status()
-        path.write_bytes(r.content)
+        tmp = path.with_suffix(".part")
+        tmp.write_bytes(r.content)
+        tmp.replace(path)
     return path
+
+
+@lru_cache(maxsize=8)
+def model_bytes(path):
+    """MediaPipe gets the model as bytes: its path loader breaks on non-ASCII folders on Windows."""
+    return Path(path).read_bytes()
 
 
 def segment_local(video, folder, width, height, status, max_people=4):
@@ -85,7 +95,7 @@ def segment_local(video, folder, width, height, status, max_people=4):
         raise MaskError("Для локального режима установите mediapipe: pip install mediapipe")
     status("MediaPipe · выделяю человека локально")
     options = vision.PoseLandmarkerOptions(
-        base_options=BaseOptions(model_asset_path=str(_pose_model())),
+        base_options=BaseOptions(model_asset_buffer=model_bytes(_pose_model(hardware.pose_variant()))),
         running_mode=vision.RunningMode.VIDEO,
         num_poses=max_people,
         output_segmentation_masks=True,
@@ -122,7 +132,7 @@ def segment_local(video, folder, width, height, status, max_people=4):
             poses.append(pose)
             if mask.any():
                 previous, last_pose = mask, pose
-            cv2.imwrite(str(out / f"mask_{i:05d}.png"), mask.astype(np.uint8) * 255)
+            media.write_image(out / f"mask_{i:05d}.png", mask.astype(np.uint8) * 255)
     from .faces import smooth_track
 
     # Steadier joints → a steadier guide → less jitter in the generated body.
@@ -205,7 +215,7 @@ def _load_mask(mask_dir, files, i, n, width, height):
     if not files:
         return np.zeros((height, width), bool)
     j = min(len(files) - 1, round(i * len(files) / n)) if len(files) != n else i
-    m = cv2.imread(str(files[j]), cv2.IMREAD_GRAYSCALE)
+    m = media.read_image(files[j], cv2.IMREAD_GRAYSCALE)
     if m is None:
         return np.zeros((height, width), bool)
     if m.shape != (height, width):
@@ -263,12 +273,25 @@ def align_depth(depth_raw, dst, duration):
     """Stretch the depth clip onto the source timeline at 24 fps."""
     d = media.probe(depth_raw)["duration"] or duration
     media.run(["-i", depth_raw, "-an", "-vf", f"setpts=PTS*{duration / d:.6f},fps={media.FPS},tpad=stop_mode=clone:stop_duration=1",
-               "-t", f"{duration:.3f}", "-c:v", "libx264", "-crf", "14", "-pix_fmt", "yuv420p", dst], "выравнивание глубины")
+               "-t", f"{duration:.3f}", *media.venc(14), dst], "выравнивание глубины")
     return dst
 
 
 def compose(original, mask_dir, folder, meta, depth=None, status=print):
-    """Write guidance-silent.mp4 (background + depth silhouette) and mask.mp4, return QA stats."""
+    """Write guidance-silent.mp4 (background + depth silhouette), return QA stats.
+
+    Frames are streamed into the encoder, so an NVENC failure half-way can't be patched up:
+    the whole composite is redone on the CPU encoder instead."""
+    try:
+        return _compose(original, mask_dir, folder, meta, depth, status)
+    except media.MediaError:
+        if media.venc()[1] != "h264_nvenc":
+            raise
+        media._nvenc_failed = True
+        return _compose(original, mask_dir, folder, meta, depth, status)
+
+
+def _compose(original, mask_dir, folder, meta, depth, status):
     folder = Path(folder)
     w, h, n = meta["width"], meta["height"], meta["frames"]
     status("Собираю видео-гид: фон оригинала + силуэт вместо человека")
@@ -279,7 +302,7 @@ def compose(original, mask_dir, folder, meta, depth=None, status=print):
     mesh = json.loads(face_file.read_text()) if face_file.exists() else {"indices": [], "frames": []}
     samples_at = set(np.linspace(0, max(0, n - 1), 4).round().astype(int).tolist())
     samples, areas = [], []
-    with media.FrameWriter(folder / "guidance-silent.mp4", w, h) as out, media.FrameWriter(folder / "mask.mp4", w, h, crf=20) as mask_out:
+    with media.FrameWriter(folder / "guidance-silent.mp4", w, h) as out:
         for i, (rgb, mask) in enumerate(zip(media.read_frames(original, w, h), refined_masks(mask_dir, n, w, h))):
             d = next(depth_frames, None) if depth_frames is not None else None
             fill = d if d is not None else pseudo_depth(mask)
@@ -292,7 +315,6 @@ def compose(original, mask_dir, folder, meta, depth=None, status=print):
 
                 frame = draw_mesh(np.ascontiguousarray(frame), face, mesh["indices"])
             out.write(frame)
-            mask_out.write(np.repeat(mask[..., None].astype(np.uint8) * 255, 3, axis=2))
             areas.append(float(mask.mean()))
             if i in samples_at:
                 samples.append((rgb, frame))
@@ -337,7 +359,7 @@ def _contact_sheet(samples, dst, row_height=260):
         tiles.append(cv2.resize(pair, (max(1, int(pair.shape[1] * scale)), row_height * 2), interpolation=cv2.INTER_AREA))
     if tiles:
         sheet = np.concatenate(tiles, axis=1)
-        cv2.imwrite(str(dst), cv2.cvtColor(sheet, cv2.COLOR_RGB2BGR), [cv2.IMWRITE_JPEG_QUALITY, 88])
+        media.write_image(dst, cv2.cvtColor(sheet, cv2.COLOR_RGB2BGR), [cv2.IMWRITE_JPEG_QUALITY, 88])
 
 
 def save_stats(folder, stats):

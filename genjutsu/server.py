@@ -9,7 +9,7 @@ from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import faces, hosting, jobs, media, photos, providers, templates
+from . import faces, hardware, hosting, jobs, media, photos, providers, templates
 from .config import DEFAULTS, ROOT, SECRET_KEYS, has, masked, save_settings, setting
 
 STATIC = ROOT / "static"
@@ -70,6 +70,7 @@ def config():
         "local_masks": local_masks,
         "ffmpeg": ffmpeg_ok,
         "hosting": hosting.status(),
+        "hardware": hardware.summary(),
         "settings": {k: (masked(setting(k)) if k in SECRET_KEYS else setting(k)) for k in DEFAULTS if k not in ("PORT", "PUBLIC_PORT")},
     }
 

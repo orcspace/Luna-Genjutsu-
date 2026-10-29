@@ -22,6 +22,8 @@ DEFAULTS = {
     "REPLICATE_API_TOKEN": "",
     "MEDIA_HOST": "tunnel",  # tunnel | tmpfiles | litterbox
     "PUBLIC_BASE_URL": "",  # your own HTTPS tunnel to the public port, instead of cloudflared
+    "VIDEO_ENCODER": "auto",  # auto (NVENC on an NVIDIA card) | nvenc | cpu
+    "LOCAL_QUALITY": "best",  # MediaPipe pose model: best (heavy) | balanced (full) | fast (lite)
     "PORT": "8770",
     "PUBLIC_PORT": "8771",
 }

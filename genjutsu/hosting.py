@@ -152,7 +152,7 @@ def start_tunnel(timeout=45):
         raise HostingError(_tunnel["error"] + ". Установите его вручную или задайте PUBLIC_BASE_URL / MEDIA_HOST=tmpfiles.")
     _tunnel["url"] = None
     proc = subprocess.Popen([binary, "tunnel", "--no-autoupdate", "--url", f"http://127.0.0.1:{setting('PUBLIC_PORT')}"],
-                            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+                            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace")
     _tunnel["proc"] = proc
     threading.Thread(target=_read_tunnel_output, args=(proc,), daemon=True).start()
     started = time.time()

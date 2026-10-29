@@ -311,7 +311,7 @@ class Mock:
         src = Path(job["video"])
         out = src.with_name(f"mock-{request_id}.mp4")
         if not out.exists():
-            media.run(["-i", src, "-an", "-vf", "hue=h=40:s=1.4,eq=contrast=1.05", "-c:v", "libx264", "-crf", "20", "-pix_fmt", "yuv420p", out], "mock")
+            media.run(["-i", src, "-an", "-vf", "hue=h=40:s=1.4,eq=contrast=1.05", *media.venc(20), out], "mock")
         return {"state": "done", "url": out.as_uri()}
 
 
@@ -335,9 +335,11 @@ def image_payload(provider, path, host):
 
 def download(url, dst):
     if url.startswith("file://"):
-        from urllib.parse import unquote, urlparse
+        from urllib.parse import urlparse
+        from urllib.request import url2pathname
 
-        shutil.copyfile(unquote(urlparse(url).path), dst)
+        # url2pathname turns /C:/Users/... back into C:\Users\... on Windows.
+        shutil.copyfile(url2pathname(urlparse(url).path), dst)
         return dst
     with requests.get(url, stream=True, timeout=600) as r:
         r.raise_for_status()

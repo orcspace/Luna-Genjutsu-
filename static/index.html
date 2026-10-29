@@ -252,6 +252,19 @@
         <option value="tmpfiles">tmpfiles.org (публично, ~1 ч)</option>
         <option value="litterbox">litterbox (публично, 24 ч)</option>
       </select></label>
+    <label class="field"><span>Кодирование видео</span>
+      <select name="VIDEO_ENCODER">
+        <option value="auto">Авто (видеокарта NVIDIA, если есть)</option>
+        <option value="nvenc">Видеокарта NVIDIA (NVENC)</option>
+        <option value="cpu">Процессор (x264)</option>
+      </select></label>
+    <label class="field"><span>Локальная маска (MediaPipe)</span>
+      <select name="LOCAL_QUALITY">
+        <option value="best">Максимум точности (рекомендуется)</option>
+        <option value="balanced">Баланс: ~2× быстрее, хуже при нескольких людях</option>
+        <option value="fast">Быстро: для слабых ПК</option>
+      </select></label>
+    <p class="muted hw" id="hwLine"></p>
     <label class="field"><span>PUBLIC_BASE_URL <small>(свой HTTPS-туннель, необязательно)</small></span><input name="PUBLIC_BASE_URL" placeholder="https://…"></label>
     <div class="actions">
       <button class="primary" value="save" id="saveSettings">Сохранить</button>
