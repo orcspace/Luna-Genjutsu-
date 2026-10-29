@@ -9,7 +9,7 @@ from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import faces, hosting, jobs, media, photos, providers
+from . import faces, hosting, jobs, media, photos, providers, templates
 from .config import DEFAULTS, ROOT, SECRET_KEYS, has, masked, save_settings, setting
 
 STATIC = ROOT / "static"
@@ -90,6 +90,7 @@ def create_job(
     video: UploadFile = File(...),
     body: Optional[UploadFile] = File(None),
     face: Optional[UploadFile] = File(None),
+    object: Optional[UploadFile] = File(None),
     extras: List[UploadFile] = File(default_factory=list),
     consent: str = Form(""),
     mode: str = Form("swap"),
@@ -105,6 +106,8 @@ def create_job(
     face_mesh: str = Form("auto"),
     provider: str = Form(""),
     model: str = Form(""),
+    template: str = Form("hero"),
+    tpl_input: str = Form(""),
 ):
     _local_only(request)
     if consent != "yes":
@@ -116,12 +119,12 @@ def create_job(
     _check_choice(review, ("auto", "always", "never"))
     _check_choice(enhance, ("auto", "off"))
     _check_choice(face_mesh, ("auto", "off"))
-    files = [(role, f.file) for role, f in (("body", body), ("face", face)) if f is not None and f.filename]
+    files = [(role, f.file) for role, f in (("body", body), ("face", face), ("object", object)) if f is not None and f.filename]
     files += [("extra", f.file) for f in extras if f.filename]
     job = jobs.create(video.file, video.filename or "video.mp4", files, {
         "mode": mode, "who": who, "scene": scene, "extra": extra, "masking": masking,
         "audio": audio, "quality": quality, "review": review, "provider": provider or None,
-        "takes": takes, "enhance": enhance, "face_mesh": face_mesh, "model": model,
+        "takes": takes, "enhance": enhance, "face_mesh": face_mesh, "model": model, "template": template, "tpl_input": tpl_input,
     })
     return job
 
@@ -148,6 +151,11 @@ def approve(job_id: str, request: Request):
     return jobs.load(job_id)
 
 
+@app.get("/api/templates")
+def list_templates():
+    return templates.public()
+
+
 @app.post("/api/jobs/{job_id}/choose/{index}")
 def choose(job_id: str, index: int, request: Request):
     _local_only(request)
@@ -159,8 +167,8 @@ def choose(job_id: str, index: int, request: Request):
 def check_photo(request: Request, photo: UploadFile = File(...), role: str = Form("face")):
     """Instant feedback while the user picks photos, before anything is paid for."""
     _local_only(request)
-    _check_choice(role, ("face", "body", "extra"))
-    if not faces.available():
+    _check_choice(role, ("face", "body", "extra", "object"))
+    if role == "object" or not faces.available():
         return {"available": False, "warnings": []}
     with tempfile.TemporaryDirectory() as tmp:
         raw, prepared = Path(tmp) / "upload", Path(tmp) / "photo.jpg"

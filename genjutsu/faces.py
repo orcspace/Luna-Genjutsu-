@@ -463,13 +463,12 @@ def score_video(video, reference_photos, samples=16, identity=None):
     w, h = info["width"], info["height"]
     step = max(1, int(round(info["duration"] * media.FPS / samples)))
     per_frame = []
-    with _landmarker(num_faces=4) as lm:
-        for i, rgb in enumerate(media.read_frames(video, w, h)):
-            if i % step:
-                continue
-            faces = _faces_from(lm.detect(_mp_image(rgb)), w, h)
-            best = max((max(identity.cosine(identity.embed(rgb, f["pts"]), r) for r in refs) for f in faces), default=None)
-            per_frame.append(best)
+    for i, rgb in enumerate(media.read_frames(video, w, h)):
+        if i % step:
+            continue
+        # detect() also finds small faces (full-body shots) through the head from the pose.
+        found = detect(rgb, num_faces=4)
+        per_frame.append(max((max(identity.cosine(identity.embed(rgb, f["pts"]), r) for r in refs) for f in found), default=None))
     found = [s for s in per_frame if s is not None]
     if not found:
         return {"score": 0, "similarity": None, "coverage": 0.0, "matched": 0.0, "frames": len(per_frame)}

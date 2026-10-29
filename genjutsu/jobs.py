@@ -18,7 +18,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import audio, faces, hosting, masking, media, photos, prompts, providers
+from . import audio, faces, hosting, masking, media, photos, prompts, providers, templates
 from .config import RUNS, has
 
 MAX_SECONDS = 30
@@ -116,14 +116,21 @@ def _now():
 # ---------- creation ----------
 
 def create(video_file, video_name, photo_files, options):
-    """photo_files: [(role, file-like)], role in body/face/extra. Validates before anything paid."""
+    """photo_files: [(role, file-like)], role in body/face/extra/object. Validates before anything paid."""
+    options = templates.apply(options.get("template"), options)
     provider = providers.get(options.get("provider") or None)
     ok, missing = provider.ready()
     if not ok:
         raise ValueError(f"Не задан {missing}. Откройте «Настройки» и вставьте ключ.")
     roles = [r for r, _ in photo_files]
-    if "body" not in roles and "face" not in roles:
+    if options["mode"] == "object":
+        if "object" not in roles:
+            raise ValueError("Загрузите фото объекта, которым заменить.")
+        photo_files = [(r, f) for r, f in photo_files if r == "object"]
+    elif "body" not in roles and "face" not in roles:
         raise ValueError("Загрузите хотя бы одно фото: лицо или в полный рост.")
+    else:
+        photo_files = [(r, f) for r, f in photo_files if r != "object"]
     if len(photo_files) > provider.max_images:
         raise ValueError(f"{provider.label} принимает до {provider.max_images} фото.")
     model = (options.get("model") or "").strip()
@@ -178,7 +185,8 @@ def create(video_file, video_name, photo_files, options):
             "who": (options.get("who") or "person").strip()[:120],
             "scene": (options.get("scene") or "").strip()[:500],
             "extra": (options.get("extra") or "").strip()[:800],
-            "masking": options.get("masking", "auto"),
+            # An object is never hidden: the generator must see what it replaces.
+            "masking": "none" if options["mode"] == "object" else options.get("masking", "auto"),
             "audio": options.get("audio", "auto"),
             "quality": options.get("quality", "draft"),
             "review": options.get("review", "auto"),
@@ -187,6 +195,9 @@ def create(video_file, video_name, photo_files, options):
             "face_mesh": options.get("face_mesh", "auto"),
             "provider": provider.name,
             "model": model,
+            "template": options["template"],
+            "style": options.get("style", ""),
+            "photoreal": options.get("photoreal", True),
         },
         "notices": [],
         "takes": [],
@@ -292,7 +303,7 @@ def _prepare_and_generate(job_id):
     provider = providers.get(opts["provider"])
     status = lambda msg: log(job_id, msg)
 
-    if opts.get("enhance", "auto") != "off" and faces.available():
+    if opts.get("enhance", "auto") != "off" and opts["mode"] != "object" and faces.available():
         log(job_id, "Проверяю фото: лицо, резкость, свет; чищу фон", 2, "normalize")
         try:
             _prepare_photos(job_id, provider.max_images)
@@ -367,6 +378,7 @@ def approve(job_id):
     job = load(job_id)
     if job["status"] != "review":
         raise ValueError("Задача не ждёт подтверждения.")
+    _cancel.discard(job_id)
     update(job_id, status="running")
     _executor.submit(_guard, job_id, _generate)
 
@@ -418,6 +430,7 @@ def _inputs(job_id, hd=False):
         opts["mode"], provider.tags, [r["role"] for r in job["refs"]], who=opts["who"],
         masked=used.get("masking") != "none", lipsync=job.get("lipsync", False),
         scene=opts["scene"], extra=opts["extra"], pose_lines=used.get("masking") == "local", face_mesh=used.get("face_mesh", False),
+        style=opts.get("style", ""), photoreal=opts.get("photoreal", True),
     )
     webhook = "" if local or provider.name != "enhancor" else hosting.webhook_url()
     return {"plan": plan, "images": images, "parts": parts, "prompt": prompt, "webhook": webhook}
@@ -442,7 +455,16 @@ def _submit_takes(job_id, count, quality, hd=False):
             if len(inp["plan"]) > 1:
                 label += f" · часть {seg['index'] + 1}/{len(inp['plan'])}"
             log(job_id, label, None if hd else 55, "generate")
-            request_id, request = provider.submit(url, inp["images"], inp["prompt"], dict(job["meta"], duration=seg["duration"], model=job["options"].get("model")), quality, inp["webhook"])
+            try:
+                request_id, request = provider.submit(url, inp["images"], inp["prompt"], dict(job["meta"], duration=seg["duration"], model=job["options"].get("model")), quality, inp["webhook"])
+            except Exception as exc:
+                if t == 0:
+                    raise
+                # Earlier takes are already paid for: keep them, drop this one and stop sending more.
+                take.update(state="failed", error=f"Не отправлен: {exc}")
+                _store_takes(job_id, takes, hd)
+                notice(job_id, f"Дубль {t + 1} не отправлен: {exc}")
+                return
             seg.update(request_id=request_id, state="pending")
             # Saved right away: from here on this request is only ever polled.
             _store_takes(job_id, takes, hd)
@@ -470,6 +492,10 @@ def _collect(job_id, hd=False):
     job = load(job_id)
     provider = providers.get(job["options"]["provider"])
     takes = (job["hd"] or {}).get("takes") if hd else job["takes"]
+    for take in takes:
+        # A take with a part that never got a request id can never finish.
+        if take["state"] == "pending" and any(not s.get("request_id") for s in take["segments"]):
+            take.update(state="failed", error="Часть дубля не была отправлена.")
     started = time.time()
     log(job_id, "Seedance генерирует видео… обычно 2–10 минут", None if hd else 60, "generate")
     while True:
@@ -537,7 +563,7 @@ def _assemble(job_id, take, hd):
     media.restore_audio(generated, d / job["source"], result, meta["duration"])
     media.thumbnail(result, d / f"thumb{tag}.jpg", min(1.0, meta["duration"] / 2))
     take.update(state="done", result=result.name, thumb=f"thumb{tag}.jpg")
-    if not hd and faces.available():
+    if not hd and job["options"]["mode"] != "object" and faces.available():
         try:
             log(job_id, "Сравниваю лицо в видео с вашими фото")
             refs = [d / r["file"] for r in job["refs"] if r["role"] == "face"] or [d / r["file"] for r in job["refs"]]
@@ -621,6 +647,8 @@ def retry(job_id):
         return request_hd(job_id)
     if job["status"] not in ("failed", "canceled"):
         raise ValueError("Повторить можно только после ошибки или отмены.")
+    # A cancel requested earlier must not kill the retry on its first step.
+    _cancel.discard(job_id)
     if _has_pending(job["takes"]):
         # Requests already paid for: only resume polling.
         update(job_id, status="generating", error=None)

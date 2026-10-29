@@ -149,3 +149,16 @@ dialog .field { margin-bottom: 12px; }
 .pct.hi { color: var(--ok); }
 .pct.mid { color: var(--warn); }
 .pct.lo { color: var(--err); }
+
+.templates { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
+.tpl { position: relative; display: grid; align-content: end; gap: 2px; min-height: 104px; padding: 10px; border-radius: 12px; border: 1.5px solid transparent; cursor: pointer; color: #fff; text-align: left; font: inherit; overflow: hidden; background: var(--g); }
+.tpl::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(0,0,0,0) 30%, rgba(0,0,0,.55)); }
+.tpl > * { position: relative; z-index: 1; }
+.tpl svg { position: absolute; top: 10px; right: 10px; opacity: .85; z-index: 1; }
+.tpl b { font-size: 13px; line-height: 1.2; }
+.tpl small { color: rgba(255,255,255,.82); font-size: 11px; line-height: 1.25; }
+.tpl:hover { transform: translateY(-1px); }
+.tpl.on { border-color: #fff; box-shadow: 0 0 0 2px var(--accent); }
+.tpl-field { margin-top: 12px; }
+@media (max-width: 900px) { .templates { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 520px) { .templates { grid-template-columns: repeat(2, minmax(0, 1fr)); } .tpl small { display: none; } .tpl { min-height: 76px; } }

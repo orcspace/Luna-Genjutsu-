@@ -185,6 +185,27 @@ def test_dreamina_end_to_end_without_tunnel(client, make_video, photo, monkeypat
     assert r.status_code == 400 and "seedance-9" in r.json()["detail"]
 
 
+def test_object_swap_template(client, make_video, photo):
+    files = [("video", ("clip.mp4", open(make_video(seconds=4), "rb"), "video/mp4")),
+             ("object", ("o.jpg", open(photo("o.jpg"), "rb"), "image/jpeg")),
+             ("face", ("f.jpg", open(photo("f.jpg"), "rb"), "image/jpeg"))]
+    data = {"consent": "yes", "provider": "mock", "template": "object", "tpl_input": "the red mug", "masking": "local"}
+    job = wait(client, client.post("/api/jobs", files=files, data=data).json()["id"])
+    assert job["status"] == "done", job["error"]
+    # The object is never hidden, only its photo is sent, and no face scoring is attempted.
+    assert job["used"]["masking"] == "none" and [r["role"] for r in job["refs"]] == ["object"]
+    assert job["prompt"].startswith("Replace only the red mug in @Video1 with the object")
+    assert not any("сходства" in n for n in job["notices"])
+    r = client.post("/api/jobs", files=[("video", ("c.mp4", open(make_video(seconds=4, name="b.mp4"), "rb"), "video/mp4"))],
+                    data={"consent": "yes", "provider": "mock", "template": "object", "tpl_input": "the mug"})
+    assert r.status_code == 400 and "объекта" in r.json()["detail"]
+
+
+def test_templates_endpoint(client):
+    data = client.get("/api/templates").json()
+    assert len(data) == 10 and data[0]["id"] == "hero"
+
+
 def test_public_server_serves_only_registered_files(tmp_path, monkeypatch):
     monkeypatch.setenv("PUBLIC_PORT", "18771")
     hosting.start_public_server()
@@ -195,3 +216,28 @@ def test_public_server_serves_only_registered_files(tmp_path, monkeypatch):
     assert requests.get(f"http://127.0.0.1:18771/m/{'x' * 32}/v.mp4", timeout=5).status_code == 404
     assert requests.get("http://127.0.0.1:18771/", timeout=5).status_code == 404
     assert requests.get("http://127.0.0.1:18771/api/config", timeout=5).status_code == 404
+
+
+def test_retry_after_cancel_runs(client, make_video, photo):
+    job = wait(client, submit(client, make_video(seconds=4), photo, review="always").json()["id"])
+    assert client.post(f"/api/jobs/{job['id']}/cancel").json()["status"] == "canceled"
+    jobs._cancel.add(job["id"])  # as if the cancel arrived while a step was still running
+    client.post(f"/api/jobs/{job['id']}/retry")
+    assert wait(client, job["id"])["status"] == "done"
+
+
+def test_rejected_second_take_keeps_the_first(client, make_video, photo, monkeypatch):
+    real_submit = providers.Mock.submit
+    count = {"n": 0}
+
+    def submit_once(self, *a, **k):
+        count["n"] += 1
+        if count["n"] == 2:
+            raise providers.ProviderError("rate limited")
+        return real_submit(self, *a, **k)
+
+    monkeypatch.setattr(providers.Mock, "submit", submit_once)
+    job = wait(client, submit(client, make_video(seconds=4), photo, takes="3").json()["id"])
+    assert job["status"] == "done", job["error"]
+    assert [t["state"] for t in job["takes"]] == ["done", "failed"] and count["n"] == 2
+    assert any("Дубль 2 не отправлен" in n for n in job["notices"])

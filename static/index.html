@@ -26,6 +26,16 @@
 
     <form id="form">
       <div class="step">
+        <div class="step-head"><span class="num">★</span>Шаблон</div>
+        <input type="hidden" name="template" value="hero">
+        <div class="templates" id="templates"></div>
+        <label class="field tpl-field" id="tplField" hidden>
+          <span id="tplLabel"></span>
+          <input name="tpl_input" id="tplInput" autocomplete="off">
+        </label>
+      </div>
+
+      <div class="step">
         <div class="step-head"><span class="num">1</span>Видео-референс</div>
         <label class="drop video-drop" id="videoDrop">
           <input type="file" name="video" accept="video/*" required hidden>
@@ -39,8 +49,16 @@
       </div>
 
       <div class="step">
-        <div class="step-head"><span class="num">2</span>Ваши фото</div>
-        <div class="photos">
+        <div class="step-head"><span class="num">2</span><span id="photosTitle">Ваши фото</span></div>
+        <div class="photos" id="objectPhotos" hidden>
+          <label class="drop photo-drop" data-role="object">
+            <input type="file" name="object" accept="image/*" hidden>
+            <div class="drop-empty"><svg viewBox="0 0 24 24" width="28" height="28"><path fill="currentColor" d="M12 2 3 7v10l9 5 9-5V7l-9-5zm0 2.3L18.7 8 12 11.7 5.3 8 12 4.3zM5 9.7l6 3.3v6.7l-6-3.3V9.7zm8 10v-6.7l6-3.3v6.7l-6 3.3z"/></svg><b>Фото объекта</b><span>предмет целиком, на простом фоне, хорошо освещён</span></div>
+            <img class="drop-preview" alt="" hidden>
+            <div class="photo-check" hidden></div>
+          </label>
+        </div>
+        <div class="photos" id="personPhotos">
           <label class="drop photo-drop" data-role="face">
             <input type="file" name="face" accept="image/*" hidden>
             <div class="drop-empty"><svg viewBox="0 0 24 24" width="28" height="28"><path fill="currentColor" d="M12 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10zm0 2c-4 0-8 2-8 5v1h16v-1c0-3-4-5-8-5z"/></svg><b>Лицо крупно</b><span>анфас, ровный свет, без очков</span></div>
@@ -54,7 +72,7 @@
             <div class="photo-check" hidden></div>
           </label>
         </div>
-        <label class="extras">
+        <label class="extras" id="extrasPick">
           <input type="file" name="extras" accept="image/*" multiple hidden>
           <span id="extrasLabel">+ Добавить ракурсы (сбоку, сзади) — необязательно</span>
         </label>
@@ -63,17 +81,6 @@
       <details class="step options">
         <summary><span class="num">3</span>Настройки <small>— можно не трогать</small></summary>
         <div class="grid">
-          <div class="field wide">
-            <span>Режим</span>
-            <div class="seg" data-name="mode">
-              <button type="button" data-value="swap" class="on">Заменить персонажа</button>
-              <button type="button" data-value="motion">Движение в новую сцену</button>
-            </div>
-          </div>
-          <label class="field wide" id="sceneField" hidden>
-            <span>Новая сцена</span>
-            <input name="scene" placeholder="например: neon-lit Tokyo street at night, light rain">
-          </label>
           <label class="field">
             <span>Дубли <small>(лучший выбирается по сходству лица)</small></span>
             <select name="takes">

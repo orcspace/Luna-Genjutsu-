@@ -88,7 +88,11 @@ class _Handler(BaseHTTPRequestHandler):
 def start_public_server():
     global _server
     if _server is None:
-        _server = ThreadingHTTPServer(("127.0.0.1", int(setting("PUBLIC_PORT"))), _Handler)
+        port = int(setting("PUBLIC_PORT"))
+        try:
+            _server = ThreadingHTTPServer(("127.0.0.1", port), _Handler)
+        except OSError:
+            raise HostingError(f"Порт {port} для отдачи файлов занят. Закройте другую копию приложения или задайте другой PUBLIC_PORT в .env.")
         threading.Thread(target=_server.serve_forever, daemon=True).start()
     return _server
 

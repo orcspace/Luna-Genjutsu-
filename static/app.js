@@ -141,21 +141,78 @@ $(".extras input").addEventListener("change", e => {
   $("#extrasLabel").textContent = n ? `Дополнительных ракурсов: ${n} (нажмите, чтобы заменить)` : "+ Добавить ракурсы (сбоку, сзади) — необязательно";
 });
 
-$$(".seg").forEach(seg => seg.addEventListener("click", e => {
-  const b = e.target.closest("button");
-  if (!b) return;
-  $$("button", seg).forEach(x => x.classList.toggle("on", x === b));
-  if (seg.dataset.name === "mode") $("#sceneField").hidden = b.dataset.value !== "motion";
-}));
+// ---------- templates ----------
+
+const GLYPHS = {
+  person: "M12 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10zm0 2c-4 0-8 2-8 5v1h16v-1c0-3-4-5-8-5z",
+  box: "M12 2 3 7v10l9 5 9-5V7l-9-5zm0 2.3L18.7 8 12 11.7 5.3 8 12 4.3z",
+  shirt: "M8 3 3 6l2 4 2-1v12h10V9l2 1 2-4-5-3c0 2-1.8 3-4 3S8 5 8 3z",
+  pin: "M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5z",
+  spark: "M12 2l2.4 6.6L21 11l-6.6 2.4L12 20l-2.4-6.6L3 11l6.6-2.4z",
+  blob: "M17 4c3 2 4 6 2 10s-6 6-10 5-6-5-5-9 4-6 7-7 4-1 6 1z",
+  cube: "M12 2 3 7v10l9 5 9-5V7zM12 12 5 8m7 4 7-4m-7 4v9",
+  film: "M4 4h16v16H4zM8 4v16M16 4v16M4 8h4m8 0h4M4 12h4m8 0h4M4 16h4m8 0h4",
+  bolt: "M13 2 4 14h7l-1 8 9-12h-7z",
+  eye: "M12 5C6 5 2 12 2 12s4 7 10 7 10-7 10-7-4-7-10-7zm0 11a4 4 0 1 1 0-8 4 4 0 0 1 0 8z",
+};
+let templateList = [];
+
+async function loadTemplates() {
+  templateList = await api("/api/templates");
+  $("#templates").innerHTML = templateList.map(t => `
+    <button type="button" class="tpl" data-id="${t.id}" style="--g: linear-gradient(135deg, ${t.colors[0]}, ${t.colors[1]})" title="${escapeHtml(t.subtitle)}">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="${["cube", "film"].includes(t.glyph) ? "none" : "currentColor"}" stroke="${["cube", "film"].includes(t.glyph) ? "currentColor" : "none"}" stroke-width="1.6"><path d="${GLYPHS[t.glyph] || GLYPHS.spark}"/></svg>
+      <b>${escapeHtml(t.title)}</b><small>${escapeHtml(t.subtitle)}</small>
+    </button>`).join("");
+  $$(".tpl").forEach(b => b.onclick = () => pickTemplate(b.dataset.id));
+  pickTemplate(sessionTemplate() || "hero");
+}
+
+function sessionTemplate() {
+  try { return localStorage.getItem("genjutsu.template"); } catch { return null; }
+}
+
+function pickTemplate(id) {
+  const t = templateList.find(x => x.id === id) || templateList[0];
+  if (!t) return;
+  $("#form").template.value = t.id;
+  try { localStorage.setItem("genjutsu.template", t.id); } catch {}
+  $$(".tpl").forEach(b => b.classList.toggle("on", b.dataset.id === t.id));
+  const field = $("#tplField");
+  field.hidden = !t.input;
+  if (t.input) {
+    $("#tplLabel").textContent = t.input.label;
+    $("#tplInput").placeholder = t.input.placeholder;
+    $("#tplInput").required = !!t.input.required;
+  } else {
+    $("#tplInput").required = false;
+  }
+  const object = t.photos === "object";
+  $("#objectPhotos").hidden = !object;
+  $("#personPhotos").hidden = object;
+  $("#extrasPick").hidden = object;
+  $("#photosTitle").textContent = object ? "Фото объекта" : "Ваши фото";
+  $(".consent span").textContent = object
+    ? "У меня есть права на это видео и фото объекта."
+    : "На фото я или человек, который дал согласие на такое видео.";
+}
 
 $("#form").addEventListener("submit", async e => {
   e.preventDefault();
   const form = e.target;
   if (!form.video.files[0]) return hint("Загрузите видео-референс.", true);
-  if (!form.face.files[0] && !form.body.files[0]) return hint("Загрузите хотя бы одно фото: лицо или в полный рост.", true);
+  const tpl = templateList.find(x => x.id === form.template.value) || {};
+  if (tpl.photos === "object") {
+    if (!form.object.files[0]) return hint("Загрузите фото объекта.", true);
+  } else if (!form.face.files[0] && !form.body.files[0]) return hint("Загрузите хотя бы одно фото: лицо или в полный рост.", true);
+  if (tpl.input && tpl.input.required && !form.tpl_input.value.trim()) return hint(`Заполните «${tpl.input.label}».`, true);
   const data = new FormData(form);
-  data.set("mode", $('.seg[data-name=mode] .on').dataset.value);
-  for (const k of ["face", "body"]) if (!form[k].files[0]) data.delete(k);
+  // Only the photos the chosen template uses are sent.
+  for (const k of ["face", "body", "object"]) {
+    const used = tpl.photos === "object" ? k === "object" : k !== "object";
+    if (!form[k].files[0] || !used) data.delete(k);
+  }
+  if (tpl.photos === "object") data.delete("extras");
   if (!form.extras.files.length) data.delete("extras");
   if ($("#modelField").hidden) data.delete("model");
   const btn = $("#submitBtn");
@@ -195,7 +252,7 @@ $("#backBtn").onclick = () => {
   $$(".hitem").forEach(x => x.classList.remove("active"));
 };
 
-const file = (job, name, dl = false) => `/files/${job.id}/${name}${dl ? "?download=1" : `?v=${encodeURIComponent(job.progress)}`}`;
+const file = (job, name) => `/files/${job.id}/${name}?download=1`;
 
 async function refreshJob() {
   clearTimeout(jobTimer);
@@ -216,7 +273,7 @@ function render(job) {
   $(".bar").classList.toggle("live", ["running", "generating"].includes(job.status));
   $$(".hitem").forEach(x => x.classList.toggle("active", x.dataset.id === job.id));
 
-  const nowIdx = job.status === "done" ? STAGES.length : STAGES.indexOf(job.stage_key);
+  const nowIdx = job.status === "done" ? STAGES.length : job.status === "review" ? STAGES.indexOf("upload") : STAGES.indexOf(job.stage_key);
   $$("#jobSteps li").forEach((li, i) => {
     li.classList.toggle("done", i < nowIdx || job.status === "done");
     li.classList.toggle("now", i === nowIdx && job.status !== "done");
@@ -237,9 +294,10 @@ function render(job) {
   $("#stopBtn").hidden = !["queued", "running"].includes(job.status);
 
   $("#previewFig").hidden = !job.guide;
-  if (job.guide) $("#previewImg").src = file(job, "preview.jpg");
+  // Only touch src when the file really changed, so images don't reload on every poll.
+  if (job.guide) setSrc($("#previewImg"), `/files/${job.id}/preview.jpg?v=${encodeURIComponent(job.guide + (job.qa ? job.qa.mean_area : ""))}`);
   $("#sheetFig").hidden = false;
-  $("#sheetImg").src = `/files/${job.id}/sheet.jpg?v=${(job.refs || []).length}`;
+  setSrc($("#sheetImg"), `/files/${job.id}/sheet.jpg?v=${(job.refs || []).map(r => r.send).join(",")}`);
 
   const box = $("#resultBox");
   box.hidden = !job.result;
@@ -249,12 +307,12 @@ function render(job) {
     const src = `/files/${job.id}/${hdDone ? job.hd.result : job.result}`;
     const v = $("#resultVideo");
     if (v.dataset.src !== src) { v.src = src; v.dataset.src = src; }
-    $("#downloadBtn").href = file(job, job.result, true);
+    $("#downloadBtn").href = file(job, job.result);
     $("#downloadBtn").textContent = job.options.quality === "hd" ? "Скачать 1080p" : "Скачать черновик";
     const canHd = job.options.quality === "draft" && !job.hd;
     $("#hdBtn").hidden = !canHd;
     $("#downloadHdBtn").hidden = !hdDone;
-    if (hdDone) $("#downloadHdBtn").href = file(job, job.hd.result, true);
+    if (hdDone) $("#downloadHdBtn").href = file(job, job.hd.result);
     const hh = $("#hdHint");
     hh.className = "hint";
     hh.textContent = job.hd ? ({ running: "1080p генерируется…", done: "1080p готово", failed: "1080p: " + (job.hd.error || "ошибка") })[job.hd.status] || "" : "";
@@ -262,6 +320,10 @@ function render(job) {
 
   $("#jobPrompt").textContent = job.prompt || "Промпт появится перед отправкой.";
   $("#jobLog").innerHTML = (job.log || []).slice().reverse().map(l => `<li>${l.t.slice(11, 19)} · ${escapeHtml(l.msg)}</li>`).join("");
+}
+
+function setSrc(el, src) {
+  if (el.dataset.src !== src) { el.src = src; el.dataset.src = src; }
 }
 
 function pctClass(p) { return p >= 60 ? "hi" : p >= 40 ? "mid" : "lo"; }
@@ -324,7 +386,7 @@ async function loadHistory() {
     const thumb = j.result ? `<img src="/files/${j.id}/thumb.jpg?c=${j.chosen}" alt="" loading="lazy">` : `<img src="/files/${j.id}/sheet.jpg" alt="" loading="lazy">`;
     const time = new Date(j.created).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
     const bar = ["running", "generating", "queued"].includes(j.status) ? `<div class="mini"><i style="width:${j.progress || 0}%"></i></div>` : "";
-    return `<div class="hitem${j.id === currentJob ? " active" : ""}" data-id="${j.id}">${thumb}<div><div class="t">${time} · ${j.options.mode === "motion" ? "новая сцена" : "замена"}</div><div class="s ${j.status}">${st}</div>${bar}</div></div>`;
+    return `<div class="hitem${j.id === currentJob ? " active" : ""}" data-id="${j.id}">${thumb}<div><div class="t">${time} · ${escapeHtml((templateList.find(t => t.id === j.options.template) || {}).title || (j.options.mode === "motion" ? "новая сцена" : "замена"))}</div><div class="s ${j.status}">${st}</div>${bar}</div></div>`;
   }).join("");
   $$(".hitem", box).forEach(el => el.onclick = () => openJob(el.dataset.id));
 }
@@ -332,6 +394,7 @@ async function loadHistory() {
 // ---------- boot ----------
 
 loadConfig().catch(e => hint("Сервер недоступен: " + e.message, true));
+loadTemplates().catch(e => hint("Шаблоны не загрузились: " + e.message, true));
 loadHistory();
 setInterval(loadHistory, 5000);
 if (location.hash.length > 1) openJob(location.hash.slice(1));

@@ -30,7 +30,7 @@ class MaskError(RuntimeError):
 def segment_cloud(video, folder, who, status):
     """SAM 3 video masks on Replicate: text prompt → one PNG per frame."""
     folder = Path(folder)
-    status("SAM 3 · ищу «%s» на каждом кадре" % who)
+    status(f"SAM 3 · ищу «{who}» на каждом кадре")
     url = replicate.upload(video)
     output = replicate.run(SAM3_VERSION, {"video": url, "prompt": who, "mask_only": True, "return_zip": True}, folder / "sam3.json")
     zipped = replicate.download(output if isinstance(output, str) else output[0], folder / "sam3-masks.zip")
