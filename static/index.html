@@ -137,6 +137,10 @@
             <span>Провайдер</span>
             <select name="provider" id="providerSelect"></select>
           </label>
+          <label class="field" id="modelField" hidden>
+            <span>Модель</span>
+            <select name="model" id="modelSelect"></select>
+          </label>
           <label class="field wide">
             <span>Дополнительно <small>(англ., необязательно)</small></span>
             <input name="extra" placeholder="например: wearing a white hoodie, keep the sunglasses off">
@@ -218,10 +222,20 @@
     <label class="field"><span>Провайдер по умолчанию</span>
       <select name="PROVIDER">
         <option value="enhancor">Enhancor · Seedance (лица разрешены)</option>
+        <option value="dreamina">Dreamina · Seedance по подписке (useapi.net)</option>
         <option value="byteplus">BytePlus ModelArk · Seedance 2.0</option>
         <option value="mock">Тест без оплаты (mock)</option>
       </select></label>
     <label class="field"><span>ENHANCOR_API_KEY</span><input name="ENHANCOR_API_KEY" autocomplete="off"></label>
+    <label class="field"><span>USEAPI_TOKEN <small>(useapi.net, для Dreamina)</small></span><input name="USEAPI_TOKEN" autocomplete="off"></label>
+    <label class="field"><span>DREAMINA_ACCOUNT <small>(email аккаунта; пусто — первый подключённый)</small></span><input name="DREAMINA_ACCOUNT" autocomplete="off"></label>
+    <label class="field"><span>Модель Dreamina по умолчанию</span>
+      <select name="DREAMINA_MODEL">
+        <option value="seedance-2.5">Seedance 2.5 — лучшее, реальные лица</option>
+        <option value="seedance-2.0">Seedance 2.0</option>
+        <option value="seedance-2.0-fast">Seedance 2.0 Fast</option>
+        <option value="seedance-2.0-mini">Seedance 2.0 Mini (720p)</option>
+      </select></label>
     <label class="field"><span>BYTEPLUS_API_KEY</span><input name="BYTEPLUS_API_KEY" autocomplete="off"></label>
     <label class="field"><span>BYTEPLUS_MODEL</span><input name="BYTEPLUS_MODEL"></label>
     <label class="field"><span>REPLICATE_API_TOKEN <small>(маска SAM 3, глубина, Demucs)</small></span><input name="REPLICATE_API_TOKEN" autocomplete="off"></label>

@@ -62,7 +62,8 @@ def config():
     return {
         "provider": setting("PROVIDER"),
         "providers": [
-            {"name": p.name, "label": p.label, "ready": p.ready()[0], "max_seconds": p.max_seconds, "max_images": p.max_images}
+            {"name": p.name, "label": p.label, "ready": p.ready()[0], "max_seconds": p.max_seconds, "max_images": p.max_images,
+             "models": getattr(p, "models", {})}
             for p in providers.PROVIDERS.values()
         ],
         "replicate": has("REPLICATE_API_TOKEN"),
@@ -103,6 +104,7 @@ def create_job(
     enhance: str = Form("auto"),
     face_mesh: str = Form("auto"),
     provider: str = Form(""),
+    model: str = Form(""),
 ):
     _local_only(request)
     if consent != "yes":
@@ -119,7 +121,7 @@ def create_job(
     job = jobs.create(video.file, video.filename or "video.mp4", files, {
         "mode": mode, "who": who, "scene": scene, "extra": extra, "masking": masking,
         "audio": audio, "quality": quality, "review": review, "provider": provider or None,
-        "takes": takes, "enhance": enhance, "face_mesh": face_mesh,
+        "takes": takes, "enhance": enhance, "face_mesh": face_mesh, "model": model,
     })
     return job
 

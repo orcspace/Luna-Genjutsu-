@@ -57,6 +57,7 @@ cd Luna-Genjutsu-
 | Ключ | Зачем |
 |---|---|
 | `ENHANCOR_API_KEY` | Seedance через [Enhancor](https://app.enhancor.ai/api-dashboard): разрешает ваше лицо на референсах (`pass_faces`), черновик → 1080p. **Рекомендуется.** |
+| `USEAPI_TOKEN` | Seedance 2.5 / 2.0 / 2.0 Fast / 2.0 Mini **по вашей подписке Dreamina** через [useapi.net](https://useapi.net/docs/api-dreamina-v1). У самого Dreamina публичного API нет. Аккаунт Dreamina подключается в useapi.net один раз ([инструкция](https://useapi.net/docs/start-here/setup-dreamina)), кредиты списываются с подписки. Файлы загружаются прямо в аккаунт, туннель не нужен. Seedance 2.5 принимает реальные лица. |
 | `BYTEPLUS_API_KEY` | Официальный BytePlus ModelArk. Seedance 2.x там отклоняет реальные лица на фото, если они не загружены в вашу приватную библиотеку портретов. |
 | `REPLICATE_API_TOKEN` | Необязательно. Облачная маска SAM 3 + глубина и отделение голоса Demucs. Без него маска делается локально, а для липсинка используется весь звук. |
 

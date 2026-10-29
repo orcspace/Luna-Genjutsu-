@@ -1,9 +1,11 @@
 """Seedance backends. Every paid call is made once; polling is the only thing that repeats."""
 import base64
+import hashlib
 import math
 import shutil
 import time
 from pathlib import Path
+from urllib.parse import quote
 
 import requests
 
@@ -146,6 +148,135 @@ class BytePlus:
         return {"state": "pending", "raw": j}
 
 
+class Dreamina:
+    """Seedance on your Dreamina (CapCut) subscription through useapi.net.
+
+    Files go up as account assets (no public links or tunnel needed); credits come from the
+    Dreamina subscription. API from useapi.net's official examples (github.com/useapi/dreamina-api).
+    """
+
+    name = "dreamina"
+    label = "Dreamina · Seedance (useapi.net)"
+    api = "https://api.useapi.net/v1/dreamina"
+    max_seconds = 15  # reference videos on the Seedance 2.0 family are capped at 15.4 s
+    max_images = 9
+    images_as_urls = False
+    local_files = True  # receives local paths and uploads them itself
+    tags = {"video": "@Video1", "image": lambda i: f"@Image{i}"}
+    models = {
+        "seedance-2.5": "Seedance 2.5 — лучшее качество, принимает реальные лица",
+        "seedance-2.0": "Seedance 2.0",
+        "seedance-2.0-fast": "Seedance 2.0 Fast — быстрее и дешевле",
+        "seedance-2.0-mini": "Seedance 2.0 Mini — самый дешёвый, только 720p",
+    }
+    busy_retries = 6
+    busy_wait = 10
+    _assets = {}  # (account, sha1) -> assetRef, so takes and parts reuse uploads
+    _account = None
+
+    def _headers(self, **extra):
+        token = setting("USEAPI_TOKEN")
+        if not token:
+            raise ProviderError("Нужен USEAPI_TOKEN (настройки → ключи).")
+        return {"Authorization": f"Bearer {token}", "Accept": "application/json", **extra}
+
+    def ready(self):
+        return bool(setting("USEAPI_TOKEN")), "USEAPI_TOKEN"
+
+    def account(self):
+        """REGION:email of the connected account to use (assets and jobs must share it)."""
+        wanted = setting("DREAMINA_ACCOUNT").strip()
+        if self._account and (not wanted or wanted in (self._account, self._account.split(":", 1)[-1])):
+            return self._account
+        r = requests.get(f"{self.api}/accounts", headers=self._headers(), timeout=30)
+        if not r.ok:
+            raise ProviderError(f"useapi.net: не удалось получить аккаунты Dreamina ({r.status_code}): {r.text[:300]}")
+        accounts = list((r.json() or {}).values())
+        if not accounts:
+            raise ProviderError("В useapi.net не подключён ни один аккаунт Dreamina: https://useapi.net/docs/start-here/setup-dreamina")
+        if wanted:
+            match = next((a for a in accounts if wanted in (a.get("account"), a.get("email"))), None)
+            if not match:
+                raise ProviderError(f"Аккаунт Dreamina «{wanted}» не найден в useapi.net.")
+        else:
+            match = next((a for a in accounts if not a.get("error")), accounts[0])
+        if match.get("error"):
+            raise ProviderError(f"У аккаунта {match.get('account')} ошибка: {match['error']}. Переподключите его в useapi.net.")
+        Dreamina._account = match["account"]
+        return self._account
+
+    def upload(self, path, account):
+        path = Path(path)
+        digest = hashlib.sha1(path.read_bytes()).hexdigest()
+        key = (account, digest)
+        if key not in self._assets:
+            ctype = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp", ".mp4": "video/mp4"}.get(path.suffix.lower())
+            if not ctype:
+                raise ProviderError(f"Dreamina не принимает файлы {path.suffix}.")
+            r = requests.post(f"{self.api}/assets/{quote(account, safe='')}", headers=self._headers(**{"Content-Type": ctype}), data=path.read_bytes(), timeout=600)
+            if not r.ok:
+                raise ProviderError(f"Dreamina не принял файл {path.name} ({r.status_code}): {r.text[:300]}")
+            ref = r.json().get("assetRef")
+            if not ref:
+                raise ProviderError("Dreamina не вернул assetRef: " + r.text[:300])
+            self._assets[key] = ref
+        return self._assets[key]
+
+    def submit(self, video_url, images, prompt, meta, quality, webhook):
+        account = self.account()
+        model = meta.get("model") or setting("DREAMINA_MODEL") or "seedance-2.5"
+        if model not in self.models:
+            raise ProviderError(f"Неизвестная модель Dreamina «{model}».")
+        payload = {
+            "account": account,
+            "model": model,
+            "prompt": prompt,
+            "ratio": nearest_ratio(meta["width"], meta["height"]),
+            "duration": int(max(4, min(self.max_seconds, math.ceil(meta["duration"] - 0.05)))),
+            "resolution": "720p" if quality == "draft" or model == "seedance-2.0-mini" else "1080p",
+            "omni_1_videoRef": self.upload(video_url, account),
+        }
+        for i, img in enumerate(images, start=1):
+            payload[f"omni_{i}_imageRef"] = self.upload(img, account)
+        for attempt in range(self.busy_retries + 1):
+            r = requests.post(f"{self.api}/videos", headers=self._headers(**{"Content-Type": "application/json"}), json=payload, timeout=90)
+            # 429 = every account is at capacity; nothing was queued or charged, so waiting is safe.
+            if r.status_code != 429 or attempt == self.busy_retries:
+                break
+            time.sleep(self.busy_wait)
+        if r.status_code == 402:
+            raise ProviderError("Dreamina: закончились кредиты или подписка. Пополните на dreamina.capcut.com.")
+        if r.status_code == 596:
+            raise ProviderError("Dreamina: сессия аккаунта истекла — переподключите аккаунт в useapi.net.")
+        if r.status_code == 429:
+            raise ProviderError("Dreamina: все аккаунты заняты другими генерациями. Попробуйте позже.")
+        if not r.ok:
+            raise ProviderError(f"Dreamina отклонил запрос ({r.status_code}): {r.text[:500]}")
+        ident = r.json().get("jobid")
+        if not ident:
+            raise ProviderError("Dreamina не вернул jobid: " + r.text[:300])
+        return ident, payload
+
+    def poll(self, request_id):
+        # The job id goes into the path as-is, exactly like useapi.net's own example script.
+        r = requests.get(f"{self.api}/videos/{request_id}", headers=self._headers(), timeout=30)
+        r.raise_for_status()
+        j = r.json()
+        state = j.get("status")
+        if state == "completed":
+            result = j.get("response") or {}
+            url = result.get("videoUrl") or result.get("videoUrlWatermarked")
+            if not url:
+                raise ProviderError("Dreamina завершил задачу без ссылки на видео.")
+            return {"state": "done", "url": url, "raw": j}
+        if state == "failed":
+            detail = j.get("error") or "failed"
+            if j.get("errorDetails"):
+                detail += f" — {j['errorDetails']}"
+            return {"state": "failed", "error": detail, "raw": j}
+        return {"state": "pending", "raw": j}
+
+
 class Mock:
     """Free dry run: returns the guide video recoloured after a few seconds. For testing the pipeline."""
 
@@ -184,7 +315,7 @@ class Mock:
         return {"state": "done", "url": out.as_uri()}
 
 
-PROVIDERS = {p.name: p for p in (Enhancor(), BytePlus(), Mock())}
+PROVIDERS = {p.name: p for p in (Enhancor(), Dreamina(), BytePlus(), Mock())}
 
 
 def get(name=None):

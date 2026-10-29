@@ -111,3 +111,88 @@ def test_prompt_mentions_guide_lines_only_when_drawn():
     assert "guidance only and must not appear" not in plain
     both = prompts.build("swap", providers.Enhancor.tags, ["face"], masked=True, pose_lines=True, face_mesh=True)
     assert "pose lines" in both and "eyebrows and lips" in both and "must not appear" in both
+
+
+@pytest.fixture
+def dreamina(monkeypatch):
+    monkeypatch.setenv("USEAPI_TOKEN", "user:1-abc")
+    monkeypatch.setenv("DREAMINA_ACCOUNT", "")
+    monkeypatch.setattr(providers.Dreamina, "_account", None)
+    monkeypatch.setattr(providers.Dreamina, "_assets", {})
+    monkeypatch.setattr(providers.Dreamina, "busy_wait", 0)
+    return providers.Dreamina()
+
+
+def test_dreamina_uploads_assets_once_and_submits_omni_refs(dreamina, monkeypatch, tmp_path):
+    video, body, face = tmp_path / "g.mp4", tmp_path / "b.jpg", tmp_path / "f.jpg"
+    video.write_bytes(b"video")
+    body.write_bytes(b"body")
+    face.write_bytes(b"face")
+    calls = []
+
+    def get(url, headers, timeout):
+        calls.append(("GET", url, headers))
+        return FakeResponse({"US:me@x.com": {"account": "US:me@x.com", "email": "me@x.com"}})
+
+    def post(url, headers, timeout, data=None, json=None):
+        calls.append(("POST", url, headers, data, json))
+        if "/assets/" in url:
+            return FakeResponse({"assetRef": "asset-" + data.decode()})
+        return FakeResponse({"jobid": "job-1"})
+
+    monkeypatch.setattr(providers.requests, "get", get)
+    monkeypatch.setattr(providers.requests, "post", post)
+    meta = {"duration": 7.3, "width": 540, "height": 960, "model": None}
+    ident, payload = dreamina.submit(str(video), [str(body), str(face)], "P", meta, "draft", "")
+    assert ident == "job-1"
+    assert calls[0][1].endswith("/dreamina/accounts") and calls[0][2]["Authorization"] == "Bearer user:1-abc"
+    uploads = [c for c in calls if c[0] == "POST" and "/assets/" in c[1]]
+    assert uploads[0][1].endswith("/assets/US%3Ame%40x.com") and uploads[0][2]["Content-Type"] == "video/mp4"
+    assert payload == {
+        "account": "US:me@x.com", "model": "seedance-2.5", "prompt": "P", "ratio": "9:16", "duration": 8, "resolution": "720p",
+        "omni_1_videoRef": "asset-video", "omni_1_imageRef": "asset-body", "omni_2_imageRef": "asset-face",
+    }
+    # A second take reuses the uploaded assets and the resolved account.
+    calls.clear()
+    dreamina.submit(str(video), [str(body), str(face)], "P", dict(meta, model="seedance-2.0-mini"), "hd", "")
+    assert [c[1].rsplit("/", 1)[-1] for c in calls] == ["videos"]
+    assert calls[0][4]["resolution"] == "720p" and calls[0][4]["model"] == "seedance-2.0-mini"
+
+
+def test_dreamina_waits_out_busy_accounts_then_reports_errors(dreamina, monkeypatch, tmp_path):
+    video = tmp_path / "g.mp4"
+    video.write_bytes(b"v")
+    dreamina._account = "US:me@x.com"
+    dreamina._assets[("US:me@x.com", __import__("hashlib").sha1(b"v").hexdigest())] = "a"
+    replies = iter([FakeResponse({}, 429), FakeResponse({}, 429), FakeResponse({"jobid": "j"})])
+    monkeypatch.setattr(providers.requests, "post", lambda *a, **k: next(replies))
+    assert dreamina.submit(str(video), [], "P", {"duration": 5, "width": 16, "height": 9}, "hd", "")[0] == "j"
+    for code, text in ((402, "кредиты"), (596, "сессия"), (400, "отклонил")):
+        monkeypatch.setattr(providers.requests, "post", lambda *a, code=code, **k: FakeResponse({"error": "x"}, code))
+        with pytest.raises(providers.ProviderError, match=text):
+            dreamina.submit(str(video), [], "P", {"duration": 5, "width": 16, "height": 9}, "hd", "")
+
+
+def test_dreamina_account_selection(dreamina, monkeypatch):
+    accounts = {"US:a@x.com": {"account": "US:a@x.com", "email": "a@x.com", "error": "session expired"},
+                "CA:b@x.com": {"account": "CA:b@x.com", "email": "b@x.com"}}
+    monkeypatch.setattr(providers.requests, "get", lambda *a, **k: FakeResponse(accounts))
+    assert dreamina.account() == "CA:b@x.com"  # skips the broken one
+    monkeypatch.setattr(providers.Dreamina, "_account", None)
+    monkeypatch.setenv("DREAMINA_ACCOUNT", "a@x.com")
+    with pytest.raises(providers.ProviderError, match="ошибка"):
+        dreamina.account()
+    monkeypatch.setenv("DREAMINA_ACCOUNT", "nobody@x.com")
+    with pytest.raises(providers.ProviderError, match="не найден"):
+        dreamina.account()
+
+
+def test_dreamina_poll(dreamina, monkeypatch):
+    replies = iter([{"status": "started"}, {"status": "completed", "response": {"videoUrlWatermarked": "w", "videoUrl": "clean"}},
+                    {"status": "failed", "error": "moderation", "errorDetails": "face"}])
+    seen = []
+    monkeypatch.setattr(providers.requests, "get", lambda url, **k: seen.append(url) or FakeResponse(next(replies)))
+    assert dreamina.poll("user:1-dreamina:US:me@x.com-video:123")["state"] == "pending"
+    assert dreamina.poll("j")["url"] == "clean"  # the clean master, not the watermarked copy
+    assert dreamina.poll("j")["error"] == "moderation — face"
+    assert seen[0].endswith("/videos/user:1-dreamina:US:me@x.com-video:123")

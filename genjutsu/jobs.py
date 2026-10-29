@@ -126,6 +126,9 @@ def create(video_file, video_name, photo_files, options):
         raise ValueError("Загрузите хотя бы одно фото: лицо или в полный рост.")
     if len(photo_files) > provider.max_images:
         raise ValueError(f"{provider.label} принимает до {provider.max_images} фото.")
+    model = (options.get("model") or "").strip()
+    if model and model not in getattr(provider, "models", {}):
+        raise ValueError(f"{provider.label} не знает модель «{model}».")
     takes = int(options.get("takes") or 1)
     if not 1 <= takes <= MAX_TAKES:
         raise ValueError(f"Дублей можно от 1 до {MAX_TAKES}.")
@@ -183,6 +186,7 @@ def create(video_file, video_name, photo_files, options):
             "enhance": options.get("enhance", "auto"),
             "face_mesh": options.get("face_mesh", "auto"),
             "provider": provider.name,
+            "model": model,
         },
         "notices": [],
         "takes": [],
@@ -438,7 +442,7 @@ def _submit_takes(job_id, count, quality, hd=False):
             if len(inp["plan"]) > 1:
                 label += f" · часть {seg['index'] + 1}/{len(inp['plan'])}"
             log(job_id, label, None if hd else 55, "generate")
-            request_id, request = provider.submit(url, inp["images"], inp["prompt"], dict(job["meta"], duration=seg["duration"]), quality, inp["webhook"])
+            request_id, request = provider.submit(url, inp["images"], inp["prompt"], dict(job["meta"], duration=seg["duration"], model=job["options"].get("model")), quality, inp["webhook"])
             seg.update(request_id=request_id, state="pending")
             # Saved right away: from here on this request is only ever polled.
             _store_takes(job_id, takes, hd)

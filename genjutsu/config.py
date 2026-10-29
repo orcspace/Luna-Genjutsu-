@@ -10,9 +10,12 @@ BIN = ROOT / "bin"
 MODELS = ROOT / "models"
 
 DEFAULTS = {
-    "PROVIDER": "enhancor",  # enhancor | byteplus | mock
+    "PROVIDER": "enhancor",  # enhancor | dreamina | byteplus | mock
     "ENHANCOR_API_KEY": "",
     "ENHANCOR_BASE_URL": "https://apireq.enhancor.ai/api/seedance2.5/v1",
+    "USEAPI_TOKEN": "",
+    "DREAMINA_ACCOUNT": "",  # email or REGION:email; empty = first connected account
+    "DREAMINA_MODEL": "seedance-2.5",
     "BYTEPLUS_API_KEY": "",
     "BYTEPLUS_BASE_URL": "https://ark.ap-southeast.bytepluses.com/api/v3",
     "BYTEPLUS_MODEL": "dreamina-seedance-2-0-260128",
@@ -23,7 +26,7 @@ DEFAULTS = {
     "PUBLIC_PORT": "8771",
 }
 
-SECRET_KEYS = {"ENHANCOR_API_KEY", "BYTEPLUS_API_KEY", "REPLICATE_API_TOKEN"}
+SECRET_KEYS = {"ENHANCOR_API_KEY", "USEAPI_TOKEN", "BYTEPLUS_API_KEY", "REPLICATE_API_TOKEN"}
 
 
 def _read_env_file():

@@ -21,6 +21,7 @@ async function loadConfig() {
   const sel = $("#providerSelect");
   sel.innerHTML = config.providers.map(p => `<option value="${p.name}">${p.label}${p.ready ? "" : " — нет ключа"}</option>`).join("");
   sel.value = config.provider;
+  syncModels();
   const p = config.providers.find(x => x.name === config.provider);
   const badge = $("#providerBadge");
   badge.textContent = p ? p.label + (p.ready ? "" : " · нет ключа") : "";
@@ -31,6 +32,18 @@ async function loadConfig() {
   $('select[name=audio] option[value=vocals]').disabled = !config.replicate;
   if (!config.ffmpeg) hint("ffmpeg не найден — установите его, без него обработка видео невозможна.", true);
 }
+
+// Model choice for providers that offer several (Dreamina).
+function syncModels() {
+  const p = config.providers.find(x => x.name === $("#providerSelect").value);
+  const models = (p && p.models) || {};
+  const names = Object.keys(models);
+  $("#modelField").hidden = !names.length;
+  const ms = $("#modelSelect");
+  ms.innerHTML = names.map(n => `<option value="${n}">${models[n]}</option>`).join("");
+  if (names.includes(config.settings.DREAMINA_MODEL)) ms.value = config.settings.DREAMINA_MODEL;
+}
+$("#providerSelect").addEventListener("change", syncModels);
 
 $("#openSettings").onclick = () => {
   const f = $("#settingsForm");
@@ -144,6 +157,7 @@ $("#form").addEventListener("submit", async e => {
   data.set("mode", $('.seg[data-name=mode] .on').dataset.value);
   for (const k of ["face", "body"]) if (!form[k].files[0]) data.delete(k);
   if (!form.extras.files.length) data.delete("extras");
+  if ($("#modelField").hidden) data.delete("model");
   const btn = $("#submitBtn");
   btn.disabled = true;
   hint("Загружаю файлы…");

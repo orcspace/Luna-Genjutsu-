@@ -142,6 +142,49 @@ def test_check_photo_reports_missing_face(client, photo):
     assert body["available"] and body["faces"] == 0 and "Лицо не найдено" in body["warnings"][0]
 
 
+def test_dreamina_end_to_end_without_tunnel(client, make_video, photo, monkeypatch, tmp_path):
+    monkeypatch.setenv("USEAPI_TOKEN", "user:1-abc")
+    monkeypatch.setattr(providers.Dreamina, "_account", None)
+    monkeypatch.setattr(providers.Dreamina, "_assets", {})
+    monkeypatch.setattr(hosting, "host", lambda path: pytest.fail("Dreamina must not need public links"))
+    monkeypatch.setattr(hosting, "webhook_url", lambda: pytest.fail("Dreamina needs no webhook"))
+    finished = make_video(seconds=5, audio=False, name="dreamina-out.mp4")
+    sent = []
+
+    class R:
+        def __init__(self, data, code=200):
+            self.data, self.status_code, self.ok, self.text = data, code, code < 400, str(data)
+
+        def json(self):
+            return self.data
+
+        def raise_for_status(self):
+            pass
+
+    def get(url, headers=None, timeout=None, **kw):
+        if url.endswith("/accounts"):
+            return R({"US:me@x.com": {"account": "US:me@x.com", "email": "me@x.com"}})
+        return R({"status": "completed", "response": {"videoUrl": finished.as_uri()}})
+
+    def post(url, headers=None, timeout=None, data=None, json=None):
+        if "/assets/" in url:
+            return R({"assetRef": f"ref{len(sent)}"})
+        sent.append(json)
+        return R({"jobid": f"job{len(sent)}"})
+
+    monkeypatch.setattr(providers.requests, "get", get)
+    monkeypatch.setattr(providers.requests, "post", post)
+    job = wait(client, submit(client, make_video(seconds=5), photo, provider="dreamina", model="seedance-2.0-fast").json()["id"])
+    assert job["status"] == "done", job["error"]
+    assert sent[0]["model"] == "seedance-2.0-fast" and sent[0]["omni_1_videoRef"] and sent[0]["omni_2_imageRef"]
+    assert "@Video1" in sent[0]["prompt"] and "@Image2" in sent[0]["prompt"]
+    info = media.probe(jobs.folder(job["id"]) / job["result"])
+    assert info["has_audio"] and abs(info["duration"] - 5) < 0.15
+    # Unknown model names are refused before anything is uploaded.
+    r = submit(client, make_video(seconds=4, name="v2.mp4"), photo, provider="dreamina", model="seedance-9")
+    assert r.status_code == 400 and "seedance-9" in r.json()["detail"]
+
+
 def test_public_server_serves_only_registered_files(tmp_path, monkeypatch):
     monkeypatch.setenv("PUBLIC_PORT", "18771")
     hosting.start_public_server()
