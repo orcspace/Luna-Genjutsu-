@@ -95,7 +95,33 @@ $$(".photo-drop").forEach(drop => setupDrop(drop, file => {
   img.hidden = false;
   $(".drop-empty", drop).hidden = true;
   drop.classList.add("filled");
+  checkPhoto(drop, file);
 }));
+
+// Instant photo check: face found, size, sharpness, light — before anything is paid for.
+async function checkPhoto(drop, file) {
+  const box = $(".photo-check", drop);
+  box.hidden = false;
+  box.className = "photo-check busy";
+  box.textContent = "Проверяю фото…";
+  const data = new FormData();
+  data.append("photo", file);
+  data.append("role", drop.dataset.role);
+  try {
+    const r = await api("/api/check-photo", { method: "POST", body: data });
+    if (!r.available) { box.hidden = !r.warnings.length; box.className = "photo-check warn"; box.textContent = r.warnings.join(" "); return; }
+    if (r.warnings.length) {
+      box.className = "photo-check warn";
+      box.textContent = "⚠ " + r.warnings.join(" ");
+    } else {
+      box.className = "photo-check ok";
+      box.textContent = drop.dataset.role === "face" ? `✓ Лицо ${r.face_px}px, резкое, свет хороший` : "✓ Человек и лицо найдены";
+    }
+  } catch (e) {
+    box.className = "photo-check warn";
+    box.textContent = e.message;
+  }
+}
 
 $(".extras input").addEventListener("change", e => {
   const n = e.target.files.length;
@@ -187,7 +213,7 @@ function render(job) {
   err.textContent = job.error || "";
 
   const notices = [...(job.notices || []), ...((job.qa && job.qa.issues) || [])];
-  if (job.used) notices.push(`Маска: ${({ cloud: "SAM 3 + глубина (облако)", local: "MediaPipe (локально)", none: "без маски" })[job.used.masking]} · звук для модели: ${({ vocals: "голос", full: "весь звук", none: "нет" })[job.used.audio]}`);
+  if (job.used) notices.push(`Маска: ${({ cloud: "SAM 3 + глубина (облако)", local: "MediaPipe (локально)", none: "без маски" })[job.used.masking]} · звук для модели: ${({ vocals: "голос", full: "весь звук", none: "нет" })[job.used.audio]}${job.used.face_mesh ? " · сетка лица: да" : ""}`);
   const n = $("#jobNotices");
   n.hidden = !notices.length;
   n.textContent = notices.join("\n");
@@ -199,10 +225,11 @@ function render(job) {
   $("#previewFig").hidden = !job.guide;
   if (job.guide) $("#previewImg").src = file(job, "preview.jpg");
   $("#sheetFig").hidden = false;
-  $("#sheetImg").src = `/files/${job.id}/sheet.jpg`;
+  $("#sheetImg").src = `/files/${job.id}/sheet.jpg?v=${(job.refs || []).length}`;
 
   const box = $("#resultBox");
   box.hidden = !job.result;
+  renderTakes(job);
   if (job.result) {
     const hdDone = job.hd && job.hd.status === "done";
     const src = `/files/${job.id}/${hdDone ? job.hd.result : job.result}`;
@@ -221,6 +248,36 @@ function render(job) {
 
   $("#jobPrompt").textContent = job.prompt || "Промпт появится перед отправкой.";
   $("#jobLog").innerHTML = (job.log || []).slice().reverse().map(l => `<li>${l.t.slice(11, 19)} · ${escapeHtml(l.msg)}</li>`).join("");
+}
+
+function pctClass(p) { return p >= 60 ? "hi" : p >= 40 ? "mid" : "lo"; }
+
+function renderTakes(job) {
+  const takes = job.takes || [];
+  const chosen = takes.find(t => t.index === job.chosen);
+  const line = $("#scoreLine");
+  const sc = chosen && chosen.score;
+  line.hidden = !sc;
+  if (sc) {
+    line.innerHTML = `Сходство лица с вашими фото: <b class="pct ${pctClass(sc.score)}">${sc.score}%</b>` +
+      (sc.coverage < 0.6 ? " · лицо видно не на всех кадрах" : "") +
+      (sc.score < 40 ? " · попробуйте другое фото лица или ещё дубль" : "");
+  }
+  const box = $("#takesBox");
+  box.hidden = takes.length < 2;
+  if (takes.length < 2) return;
+  box.innerHTML = takes.map(t => {
+    const p = t.score ? `<span class="pct ${pctClass(t.score.score)}">${t.score.score}%</span>` : "";
+    const state = t.state === "done" ? (t.index === job.chosen ? "Выбран" : "Выбрать") : t.state === "failed" ? "Ошибка" : "Генерируется…";
+    const img = t.thumb ? `<img src="/files/${job.id}/${t.thumb}" alt="">` : `<img alt="">`;
+    return `<button type="button" class="take ${t.index === job.chosen ? "chosen" : ""} ${t.state}" data-i="${t.index}" ${t.state !== "done" ? "disabled" : ""}>${img}<span class="tl"><span>Дубль ${t.index + 1}</span>${p}</span><span class="tl muted">${state}</span></button>`;
+  }).join("");
+  $$(".take", box).forEach(b => b.onclick = async () => {
+    const i = +b.dataset.i;
+    if (i === job.chosen || job.status !== "done") return;
+    if (job.hd && job.hd.status === "done" && job.hd.take !== i && !confirm("Готовое 1080p относится к другому дублю. Выбрать этот?")) return;
+    try { render(await api(`/api/jobs/${job.id}/choose/${i}`, { method: "POST" })); loadHistory(); } catch (e) { alert(e.message); }
+  });
 }
 
 function escapeHtml(s) {
@@ -250,7 +307,7 @@ async function loadHistory() {
   if (!list.length) { box.innerHTML = '<p class="muted">Пока пусто.</p>'; return; }
   box.innerHTML = list.map(j => {
     const st = j.hd && j.hd.status === "running" ? "1080p…" : STATUS_TEXT[j.status] || j.status;
-    const thumb = j.result ? `<img src="/files/${j.id}/thumb.jpg" alt="" loading="lazy">` : `<img src="/files/${j.id}/sheet.jpg" alt="" loading="lazy">`;
+    const thumb = j.result ? `<img src="/files/${j.id}/thumb.jpg?c=${j.chosen}" alt="" loading="lazy">` : `<img src="/files/${j.id}/sheet.jpg" alt="" loading="lazy">`;
     const time = new Date(j.created).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
     const bar = ["running", "generating", "queued"].includes(j.status) ? `<div class="mini"><i style="width:${j.progress || 0}%"></i></div>` : "";
     return `<div class="hitem${j.id === currentJob ? " active" : ""}" data-id="${j.id}">${thumb}<div><div class="t">${time} · ${j.options.mode === "motion" ? "новая сцена" : "замена"}</div><div class="s ${j.status}">${st}</div>${bar}</div></div>`;

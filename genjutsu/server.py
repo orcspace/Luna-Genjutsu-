@@ -1,17 +1,19 @@
 """Local UI and JSON API. Binds to 127.0.0.1 only; this is a single-user app."""
 import re
+import tempfile
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import List, Optional
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import hosting, jobs, media, providers
+from . import faces, hosting, jobs, media, photos, providers
 from .config import DEFAULTS, ROOT, SECRET_KEYS, has, masked, save_settings, setting
 
 STATIC = ROOT / "static"
-SERVABLE = re.compile(r"^(source\.[a-z0-9]+|photo-[a-z]+\d*\.jpg|sheet\.jpg|preview\.jpg|thumb\.jpg|original\.mp4|mask\.mp4|guidance(-silent)?\.mp4|result(-hd)?\.mp4)$")
+SERVABLE = re.compile(r"^(source\.[a-z0-9]+|photo-[a-z]+\d*(-clean|-auto)?\.jpg|sheet\.jpg|preview\.jpg|thumb(-hd)?(-t\d)?\.jpg|original\.mp4|mask\.mp4|guidance(-silent)?\.mp4|result(-hd)?(-t\d)?\.mp4)$")
 
 
 @asynccontextmanager
@@ -97,6 +99,9 @@ def create_job(
     audio: str = Form("auto"),
     quality: str = Form("draft"),
     review: str = Form("auto"),
+    takes: int = Form(1),
+    enhance: str = Form("auto"),
+    face_mesh: str = Form("auto"),
     provider: str = Form(""),
 ):
     _local_only(request)
@@ -107,11 +112,14 @@ def create_job(
     _check_choice(audio, ("auto", "vocals", "full", "none"))
     _check_choice(quality, ("draft", "hd"))
     _check_choice(review, ("auto", "always", "never"))
+    _check_choice(enhance, ("auto", "off"))
+    _check_choice(face_mesh, ("auto", "off"))
     files = [(role, f.file) for role, f in (("body", body), ("face", face)) if f is not None and f.filename]
     files += [("extra", f.file) for f in extras if f.filename]
     job = jobs.create(video.file, video.filename or "video.mp4", files, {
         "mode": mode, "who": who, "scene": scene, "extra": extra, "masking": masking,
         "audio": audio, "quality": quality, "review": review, "provider": provider or None,
+        "takes": takes, "enhance": enhance, "face_mesh": face_mesh,
     })
     return job
 
@@ -123,7 +131,7 @@ def _check_choice(value, allowed):
 
 @app.get("/api/jobs")
 def list_jobs():
-    return [{k: j.get(k) for k in ("id", "created", "status", "stage", "progress", "result", "hd", "options", "error")} for j in jobs.list_jobs()]
+    return [{k: j.get(k) for k in ("id", "created", "status", "stage", "progress", "result", "hd", "options", "error", "chosen")} for j in jobs.list_jobs()]
 
 
 @app.get("/api/jobs/{job_id}")
@@ -136,6 +144,32 @@ def approve(job_id: str, request: Request):
     _local_only(request)
     jobs.approve(_id(job_id))
     return jobs.load(job_id)
+
+
+@app.post("/api/jobs/{job_id}/choose/{index}")
+def choose(job_id: str, index: int, request: Request):
+    _local_only(request)
+    jobs.choose(_id(job_id), index)
+    return jobs.load(job_id)
+
+
+@app.post("/api/check-photo")
+def check_photo(request: Request, photo: UploadFile = File(...), role: str = Form("face")):
+    """Instant feedback while the user picks photos, before anything is paid for."""
+    _local_only(request)
+    _check_choice(role, ("face", "body", "extra"))
+    if not faces.available():
+        return {"available": False, "warnings": []}
+    with tempfile.TemporaryDirectory() as tmp:
+        raw, prepared = Path(tmp) / "upload", Path(tmp) / "photo.jpg"
+        raw.write_bytes(photo.file.read())
+        photos.prepare(raw, prepared)
+        try:
+            report = faces.analyze(prepared, role)
+        except faces.FaceError as exc:
+            return {"available": False, "warnings": [str(exc)]}
+    report.pop("box", None)
+    return dict(report, available=True)
 
 
 @app.post("/api/jobs/{job_id}/hd")

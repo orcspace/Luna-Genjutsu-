@@ -17,14 +17,20 @@ NEGATIVE = (
 )
 
 
-def build(mode, tags, image_roles, who="person", masked=True, lipsync=False, scene="", extra="", pose_lines=False):
+def build(mode, tags, image_roles, who="person", masked=True, lipsync=False, scene="", extra="", pose_lines=False, face_mesh=False):
     """tags: {'video': '@Video1', 'image': lambda i: f'@Image{i}'} for the provider's syntax."""
     v = tags["video"]
     who = (who or "person").strip()
     refs = " ".join(f"{tags['image'](i)} {ROLES[role]}." for i, role in enumerate(image_roles, start=1))
     sync = f" Sync the lips and facial expressions to the speech in the audio embedded in {v}." if lipsync else ""
-    lines = (" Coloured pose lines inside the silhouette mark the head, arms and legs; follow them for the limb positions, "
-             "but they are guidance only and must not appear in the output.") if masked and pose_lines else ""
+    lines = ""
+    if masked and pose_lines:
+        lines += (" Coloured pose lines inside the silhouette mark the arms, legs and torso; follow them for the limb positions.")
+    if masked and face_mesh:
+        lines += (" Thin lines on the head trace the eyes, eyebrows and lips (pink) of the original performance: follow them for "
+                  "head turns, blinks, expressions and mouth shapes.")
+    if lines:
+        lines += " All these lines are guidance only and must not appear in the output."
 
     if mode == "motion":
         parts = [

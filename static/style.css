@@ -89,7 +89,7 @@ button, .primary, .secondary, .ghost { font: inherit; cursor: pointer; border-ra
 .steps li { font-size: 12px; padding: 4px 10px; border-radius: 99px; background: var(--panel-2); color: var(--muted); border: 1px solid var(--line); }
 .steps li.done { color: var(--ok); border-color: #24563a; }
 .steps li.now { color: #fff; border-color: var(--accent); background: #2a2142; }
-.alert { padding: 12px 14px; border-radius: 10px; margin-bottom: 14px; font-size: 14px; white-space: pre-line; }
+.alert { overflow-wrap: anywhere; padding: 12px 14px; border-radius: 10px; margin-bottom: 14px; font-size: 14px; white-space: pre-line; }
 .alert.error { background: #2a1416; color: var(--err); border: 1px solid #5a2328; }
 .alert.warn { background: #2a2212; color: var(--warn); border: 1px solid #5a4818; }
 .result video { width: 100%; max-height: 70vh; background: #000; border-radius: 10px; }
@@ -132,3 +132,20 @@ dialog .field { margin-bottom: 12px; }
   .badge { display: none; }
   .photos { gap: 8px; }
 }
+
+.photo-check { position: absolute; left: 6px; right: 6px; bottom: 6px; font-size: 12px; line-height: 1.35; padding: 6px 8px; border-radius: 8px; background: rgba(0, 0, 0, .78); }
+.photo-check.ok { color: var(--ok); }
+.photo-check.warn { color: var(--warn); }
+.photo-check.busy { color: var(--muted); }
+.score-line { margin: 10px 0 0; font-size: 14px; color: var(--muted); }
+.score-line b { color: var(--text); }
+.takes { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin-top: 12px; }
+.take { background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 6px; cursor: pointer; display: grid; gap: 6px; font: inherit; color: var(--text); text-align: left; }
+.take img { width: 100%; aspect-ratio: 16 / 10; object-fit: cover; border-radius: 6px; background: #000; }
+.take.chosen { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.take.failed { opacity: .5; cursor: default; }
+.take .tl { display: flex; justify-content: space-between; font-size: 12px; gap: 6px; }
+.take .pct { font-weight: 600; }
+.pct.hi { color: var(--ok); }
+.pct.mid { color: var(--warn); }
+.pct.lo { color: var(--err); }

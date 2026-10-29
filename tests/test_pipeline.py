@@ -5,7 +5,7 @@ import pytest
 import requests
 from fastapi.testclient import TestClient
 
-from genjutsu import hosting, jobs, masking, media, providers
+from genjutsu import faces, hosting, jobs, masking, media, providers
 from conftest import box_masks
 
 
@@ -43,7 +43,7 @@ def test_full_run_keeps_original_audio(client, make_video, photo):
     assert r.status_code == 200, r.text
     job = wait(client, r.json()["id"])
     assert job["status"] == "done", job["error"]
-    assert job["used"] == {"masking": "local", "audio": "full"}
+    assert job["used"] == {"masking": "local", "audio": "full", "face_mesh": False}
     assert job["lipsync"] and "@Image1 shows the full body" in job["prompt"] and "@Image2 is a face close-up" in job["prompt"]
     result = jobs.folder(job["id"]) / job["result"]
     info = media.probe(result)
@@ -61,7 +61,8 @@ def test_long_clip_is_split_and_joined(client, make_video, photo, monkeypatch):
     monkeypatch.setattr(providers.Mock, "max_seconds", 4)
     job = wait(client, submit(client, make_video(seconds=9), photo).json()["id"])
     assert job["status"] == "done", job["error"]
-    assert len(job["segments"]) == 3
+    # 9 s in ≤4 s parts sharing 1 s: three parts, blended back to exactly 9 s.
+    assert len(job["takes"][0]["segments"]) == 3
     assert abs(media.probe(jobs.folder(job["id"]) / job["result"])["duration"] - 9) < 0.2
 
 
@@ -74,7 +75,7 @@ def test_short_clip_is_padded_for_the_provider_and_cut_back(client, make_video, 
 def test_review_gate_then_approve(client, make_video, photo):
     job = wait(client, submit(client, make_video(seconds=4), photo, review="always").json()["id"])
     assert job["status"] == "review" and job["qa"]["ok"]
-    assert not job["segments"]
+    assert not job["takes"]
     client.post(f"/api/jobs/{job['id']}/approve")
     assert wait(client, job["id"])["status"] == "done"
 
@@ -98,10 +99,47 @@ def test_missing_key_is_reported_before_upload(client, make_video, photo, monkey
 
 def test_resume_never_resubmits(runs, monkeypatch, make_video, photo, client):
     job = wait(client, submit(client, make_video(seconds=4), photo).json()["id"])
-    jobs.update(job["id"], status="generating", segments=[{"index": 0, "state": None}], result=None)
+    jobs.update(job["id"], status="generating", takes=[{"index": 0, "state": "pending", "segments": [{"index": 0, "state": None}]}], result=None)
     jobs.resume_all()
     job = jobs.load(job["id"])
     assert job["status"] == "failed" and "дважды" in job["error"]
+
+
+def test_best_take_wins_and_can_be_changed(client, make_video, photo, monkeypatch):
+    scores = iter([41, 77, 63])
+    monkeypatch.setattr(faces, "score_video", lambda video, refs: {"score": next(scores), "coverage": 1.0})
+    job = wait(client, submit(client, make_video(seconds=4), photo, takes="3").json()["id"])
+    assert job["status"] == "done", job["error"]
+    assert [t["score"]["score"] for t in job["takes"]] == [41, 77, 63]
+    assert job["chosen"] == 1 and job["result"] == "result-t1.mp4"
+    assert client.get(f"/files/{job['id']}/result-t2.mp4").status_code == 200
+    job = client.post(f"/api/jobs/{job['id']}/choose/2").json()
+    assert job["chosen"] == 2 and job["result"] == "result-t2.mp4"
+    # 1080p finishes the chosen take.
+    client.post(f"/api/jobs/{job['id']}/hd")
+    job = wait(client, job["id"])
+    assert job["hd"]["status"] == "done" and job["hd"]["take"] == 2
+
+
+def test_one_failed_take_does_not_sink_the_job(client, make_video, photo, monkeypatch):
+    real_poll = providers.Mock.poll
+    calls = {}
+
+    def poll(self, request_id):
+        first = calls.setdefault("first", request_id)
+        return {"state": "failed", "error": "boom"} if request_id == first else real_poll(self, request_id)
+
+    monkeypatch.setattr(providers.Mock, "poll", poll)
+    job = wait(client, submit(client, make_video(seconds=4), photo, takes="2").json()["id"])
+    assert job["status"] == "done", job["error"]
+    assert [t["state"] for t in job["takes"]] == ["failed", "done"] and job["chosen"] == 1
+
+
+def test_check_photo_reports_missing_face(client, photo):
+    r = client.post("/api/check-photo", files={"photo": ("p.jpg", open(photo("plain.jpg"), "rb"), "image/jpeg")}, data={"role": "face"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["available"] and body["faces"] == 0 and "Лицо не найдено" in body["warnings"][0]
 
 
 def test_public_server_serves_only_registered_files(tmp_path, monkeypatch):

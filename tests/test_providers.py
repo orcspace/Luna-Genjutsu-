@@ -93,9 +93,21 @@ def test_prompt_labels_follow_reference_order():
     assert "video 1" in motion and "a beach at sunset" in motion and "image 1 is a face close-up" in motion
 
 
-def test_segments_cover_the_clip():
-    from genjutsu.jobs import _segments
-    segs = _segments(29.5, 15)
-    assert len(segs) == 2 and abs(sum(s["duration"] for s in segs) - 29.5) < 0.01
-    assert all(s["duration"] >= 4 for s in _segments(16, 15))
-    assert len(_segments(15, 15)) == 1
+def test_segments_overlap_and_cover_the_clip():
+    from genjutsu.jobs import plan_segments
+    assert plan_segments(15, 15) == [{"index": 0, "start": 0.0, "duration": 15}]
+    segs = plan_segments(29.5, 15, overlap=1.0)
+    assert len(segs) == 3 or len(segs) == 2
+    assert all(s["duration"] <= 15 for s in segs)
+    # Neighbours share exactly the overlap and the last part ends at the clip end.
+    for a, b in zip(segs, segs[1:]):
+        assert abs(a["start"] + a["duration"] - b["start"] - 1.0) < 0.01
+    assert abs(segs[-1]["start"] + segs[-1]["duration"] - 29.5) < 0.01
+    assert all(s["duration"] >= 4 for s in plan_segments(16, 15))
+
+
+def test_prompt_mentions_guide_lines_only_when_drawn():
+    plain = prompts.build("swap", providers.Enhancor.tags, ["face"], masked=True)
+    assert "guidance only and must not appear" not in plain
+    both = prompts.build("swap", providers.Enhancor.tags, ["face"], masked=True, pose_lines=True, face_mesh=True)
+    assert "pose lines" in both and "eyebrows and lips" in both and "must not appear" in both

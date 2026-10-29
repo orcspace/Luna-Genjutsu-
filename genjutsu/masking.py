@@ -123,7 +123,10 @@ def segment_local(video, folder, width, height, status, max_people=4):
             if mask.any():
                 previous, last_pose = mask, pose
             cv2.imwrite(str(out / f"mask_{i:05d}.png"), mask.astype(np.uint8) * 255)
-    (out / "pose.json").write_text(json.dumps(poses))
+    from .faces import smooth_track
+
+    # Steadier joints → a steadier guide → less jitter in the generated body.
+    (out / "pose.json").write_text(json.dumps(smooth_track(poses, min_cutoff=1.2, beta=4.0)))
     return out
 
 
@@ -176,19 +179,22 @@ SKELETON = {
 }
 
 
-def draw_pose(frame, pose):
-    """Limb lines inside the silhouette: the depth fill alone hides arms crossing the body."""
+def draw_pose(frame, pose, face_lines=True):
+    """Limb lines inside the silhouette: the depth fill alone hides arms crossing the body.
+    face_lines=False when a detailed face mesh is drawn instead."""
     if not pose:
         return frame
     h, w = frame.shape[:2]
     thick = max(2, int(min(w, h) * 0.011))
     pts = [(int(x * w), int(y * h), v) for x, y, v in pose]
     for colour, pairs in SKELETON.items():
+        if colour == (255, 255, 255) and not face_lines:
+            continue
         for a, b in pairs:
             if pts[a][2] > 0.5 and pts[b][2] > 0.5:
                 cv2.line(frame, pts[a][:2], pts[b][:2], colour, thick if colour != (255, 255, 255) else max(1, thick // 2), cv2.LINE_AA)
-    for x, y, v in pts:
-        if v > 0.5:
+    for k, (x, y, v) in enumerate(pts):
+        if v > 0.5 and (face_lines or k > 10):
             cv2.circle(frame, (x, y), max(2, thick // 2 + 1), (255, 255, 255), -1, cv2.LINE_AA)
     return frame
 
@@ -269,6 +275,8 @@ def compose(original, mask_dir, folder, meta, depth=None, status=print):
     depth_frames = media.read_frames(depth, w, h) if depth else None
     pose_file = Path(mask_dir) / "pose.json"
     poses = json.loads(pose_file.read_text()) if pose_file.exists() else []
+    face_file = Path(mask_dir) / "face.json"
+    mesh = json.loads(face_file.read_text()) if face_file.exists() else {"indices": [], "frames": []}
     samples_at = set(np.linspace(0, max(0, n - 1), 4).round().astype(int).tolist())
     samples, areas = [], []
     with media.FrameWriter(folder / "guidance-silent.mp4", w, h) as out, media.FrameWriter(folder / "mask.mp4", w, h, crf=20) as mask_out:
@@ -276,8 +284,13 @@ def compose(original, mask_dir, folder, meta, depth=None, status=print):
             d = next(depth_frames, None) if depth_frames is not None else None
             fill = d if d is not None else pseudo_depth(mask)
             frame = np.where(mask[..., None], fill, rgb)
+            face = mesh["frames"][i] if i < len(mesh["frames"]) and mask.any() else None
             if i < len(poses) and mask.any():
-                frame = draw_pose(np.ascontiguousarray(frame), poses[i])
+                frame = draw_pose(np.ascontiguousarray(frame), poses[i], face_lines=face is None)
+            if face:
+                from .faces import draw_mesh
+
+                frame = draw_mesh(np.ascontiguousarray(frame), face, mesh["indices"])
             out.write(frame)
             mask_out.write(np.repeat(mask[..., None].astype(np.uint8) * 255, 3, axis=2))
             areas.append(float(mask.mean()))

@@ -88,3 +88,11 @@ def test_frames_roundtrip(make_video, tmp_path):
         for f in frames:
             w.write(f)
     assert media.probe(tmp_path / "w.mp4")["width"] == 320
+
+
+def test_crossfade_concat_has_exact_length(make_video, tmp_path):
+    # BytePlus-style parts come back rounded up; they are trimmed to plan before blending.
+    a = make_video(seconds=6, audio=False, name="a.mp4")
+    b = make_video(seconds=6, audio=False, name="b.mp4")
+    media.crossfade_concat([a, b], [5.5, 5.5], 1.0, tmp_path / "x.mp4")
+    assert abs(media.probe(tmp_path / "x.mp4")["duration"] - 10.0) < 0.1

@@ -155,6 +155,27 @@ def concat(parts, dst):
     run(inputs + ["-filter_complex", graph, "-map", "[out]", "-c:v", "libx264", "-crf", "16", "-pix_fmt", "yuv420p", dst], "склейка")
 
 
+def crossfade_concat(parts, durations, overlap, dst):
+    """Join parts that were generated with `overlap` seconds in common, blending across the overlap.
+
+    Each part is first cut to its planned length (providers round durations up), so the
+    result is exactly sum(durations) - overlap * (n - 1) long.
+    """
+    first = probe(parts[0])
+    w, h = first["width"], first["height"]
+    inputs, chains = [], []
+    for i, (p, d) in enumerate(zip(parts, durations)):
+        inputs += ["-i", p]
+        chains.append(f"[{i}:v]fps={FPS},scale={w}:{h}:flags=lanczos,setsar=1,trim=0:{d:.3f},setpts=PTS-STARTPTS[v{i}]")
+    last, offset = "v0", 0.0
+    for i in range(1, len(parts)):
+        offset += durations[i - 1] - overlap
+        out = f"x{i}"
+        chains.append(f"[{last}][v{i}]xfade=transition=fade:duration={overlap:.3f}:offset={offset:.3f}[{out}]")
+        last = out
+    run(inputs + ["-filter_complex", ";".join(chains), "-map", f"[{last}]", "-c:v", "libx264", "-crf", "16", "-pix_fmt", "yuv420p", dst], "склейка с переходом")
+
+
 def restore_audio(generated, source, dst, duration):
     """Put the untouched original soundtrack on the generated picture.
 

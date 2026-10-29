@@ -45,11 +45,13 @@
             <input type="file" name="face" accept="image/*" hidden>
             <div class="drop-empty"><svg viewBox="0 0 24 24" width="28" height="28"><path fill="currentColor" d="M12 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10zm0 2c-4 0-8 2-8 5v1h16v-1c0-3-4-5-8-5z"/></svg><b>Лицо крупно</b><span>анфас, ровный свет, без очков</span></div>
             <img class="drop-preview" alt="" hidden>
+            <div class="photo-check" hidden></div>
           </label>
           <label class="drop photo-drop" data-role="body">
             <input type="file" name="body" accept="image/*" hidden>
             <div class="drop-empty"><svg viewBox="0 0 24 24" width="28" height="28"><path fill="currentColor" d="M12 2a2.5 2.5 0 1 1 0 5 2.5 2.5 0 0 1 0-5zM9 8h6l1 7h-2l-.5 7h-3L10 15H8z"/></svg><b>В полный рост</b><span>с головы до ног, в той одежде, что нужна</span></div>
             <img class="drop-preview" alt="" hidden>
+            <div class="photo-check" hidden></div>
           </label>
         </div>
         <label class="extras">
@@ -71,6 +73,14 @@
           <label class="field wide" id="sceneField" hidden>
             <span>Новая сцена</span>
             <input name="scene" placeholder="например: neon-lit Tokyo street at night, light rain">
+          </label>
+          <label class="field">
+            <span>Дубли <small>(лучший выбирается по сходству лица)</small></span>
+            <select name="takes">
+              <option value="1">1 — дешевле</option>
+              <option value="2">2 — выбрать лучший</option>
+              <option value="3">3 — максимум качества</option>
+            </select>
           </label>
           <label class="field">
             <span>Кого заменить <small>(англ.)</small></span>
@@ -107,6 +117,20 @@
               <option value="auto">Только если есть проблемы</option>
               <option value="always">Всегда перед отправкой</option>
               <option value="never">Никогда</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Подготовка фото</span>
+            <select name="enhance">
+              <option value="auto">Авто: кроп лица, чистый фон</option>
+              <option value="off">Отправлять как есть</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Сетка лица <small>(мимика, губы)</small></span>
+            <select name="face_mesh">
+              <option value="auto">Авто</option>
+              <option value="off">Выкл</option>
             </select>
           </label>
           <label class="field">
@@ -147,6 +171,8 @@
 
     <div class="result" id="resultBox" hidden>
       <video id="resultVideo" controls playsinline></video>
+      <div class="score-line" id="scoreLine" hidden></div>
+      <div class="takes" id="takesBox" hidden></div>
       <div class="result-actions">
         <a class="primary" id="downloadBtn" download>Скачать</a>
         <button class="secondary" id="hdBtn">Сделать 1080p</button>
@@ -170,7 +196,7 @@
 
     <div class="media-row">
       <figure id="previewFig" hidden><img id="previewImg" alt="Маска: оригинал и гид"><figcaption>Оригинал / что видит модель</figcaption></figure>
-      <figure id="sheetFig" hidden><img id="sheetImg" alt="Ваши фото"><figcaption>Ваши референсы</figcaption></figure>
+      <figure id="sheetFig" hidden><img id="sheetImg" alt="Ваши фото"><figcaption>Что получит Seedance: ваши фото после подготовки</figcaption></figure>
     </div>
 
     <details class="more"><summary>Промпт и журнал</summary>
